@@ -341,7 +341,7 @@ export default function FriendTrackingSystem() {
           style: "destructive",
           onPress: () => {
             // Call emergency services
-            Linking.openURL('tel:911');
+            Linking.openURL('tel:0506528336'); // Replace with actual emergency number
             // Share location with tracked friends
             addNotification('Emergency alert sent to all friends', 'error');
           }

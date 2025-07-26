@@ -40,7 +40,7 @@ export default function SafetyPage() {
   const [dropdownAnim] = useState(new Animated.Value(0));
 
   const EMERGENCY_EMAIL = 'sethagyeimensah2@gmail.com';
-  const EMERGENCY_PHONE = '0205803724';
+  const EMERGENCY_PHONE = '0506528336';
 
   useEffect(() => {
     // Request location permission and get current location

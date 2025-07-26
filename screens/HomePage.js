@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { 
   View, 
   Text,
@@ -39,12 +39,299 @@ const TIME_UPDATE_INTERVAL = 30000; // 30 seconds (more reasonable than 1 minute
 const WEATHER_API_KEY = '4077bdbd3d10a0bedde1bf1fdd44606b';
 const WEATHER_BASE_URL = 'https://api.openweathermap.org/data/2.5/weather';
 
+// Animated Loader Component
+const AnimatedLoader = ({ size = 75, color = '#2C8FFF', barColor = '#000000' }) => {
+  // Animation refs for each bar
+  const bar1Anim = useRef(new Animated.Value(0.2)).current;
+  const bar2Anim = useRef(new Animated.Value(0.4)).current;
+  const bar3Anim = useRef(new Animated.Value(0.6)).current;
+  const bar4Anim = useRef(new Animated.Value(0.8)).current;
+  const bar5Anim = useRef(new Animated.Value(1)).current;
+  
+  // Animation ref for the ball
+  const ballAnimX = useRef(new Animated.Value(0)).current;
+  const ballAnimY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animationDuration = 4000;
+
+    // Bar animations
+    const bar1Animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bar1Anim, {
+          toValue: 0.2,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar1Anim, {
+          toValue: 1,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar1Anim, {
+          toValue: 1,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar1Anim, {
+          toValue: 0.2,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+      ])
+    );
+
+    const bar2Animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bar2Anim, {
+          toValue: 0.4,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar2Anim, {
+          toValue: 0.8,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar2Anim, {
+          toValue: 0.8,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar2Anim, {
+          toValue: 0.4,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+      ])
+    );
+
+    const bar4Animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bar4Anim, {
+          toValue: 0.8,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar4Anim, {
+          toValue: 0.4,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar4Anim, {
+          toValue: 0.4,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar4Anim, {
+          toValue: 0.8,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+      ])
+    );
+
+    const bar5Animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bar5Anim, {
+          toValue: 1,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar5Anim, {
+          toValue: 0.2,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar5Anim, {
+          toValue: 0.2,
+          duration: animationDuration * 0.4,
+          useNativeDriver: false,
+        }),
+        Animated.timing(bar5Anim, {
+          toValue: 1,
+          duration: animationDuration * 0.1,
+          useNativeDriver: false,
+        }),
+      ])
+    );
+
+    // Ball animation - simplified bouncing motion
+    const ballAnimation = Animated.loop(
+      Animated.sequence([
+        // Move right and up
+        Animated.parallel([
+          Animated.timing(ballAnimX, {
+            toValue: 60,
+            duration: animationDuration * 0.4,
+            useNativeDriver: true,
+          }),
+          Animated.sequence([
+            Animated.timing(ballAnimY, {
+              toValue: -40,
+              duration: animationDuration * 0.2,
+              useNativeDriver: true,
+            }),
+            Animated.timing(ballAnimY, {
+              toValue: 0,
+              duration: animationDuration * 0.2,
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+        // Stay at right position
+        Animated.timing(ballAnimX, {
+          toValue: 60,
+          duration: animationDuration * 0.1,
+          useNativeDriver: true,
+        }),
+        // Move back left and up
+        Animated.parallel([
+          Animated.timing(ballAnimX, {
+            toValue: 0,
+            duration: animationDuration * 0.4,
+            useNativeDriver: true,
+          }),
+          Animated.sequence([
+            Animated.timing(ballAnimY, {
+              toValue: -40,
+              duration: animationDuration * 0.2,
+              useNativeDriver: true,
+            }),
+            Animated.timing(ballAnimY, {
+              toValue: 0,
+              duration: animationDuration * 0.2,
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+        // Stay at left position
+        Animated.timing(ballAnimX, {
+          toValue: 0,
+          duration: animationDuration * 0.1,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    // Start all animations
+    bar1Animation.start();
+    bar2Animation.start();
+    bar4Animation.start();
+    bar5Animation.start();
+    ballAnimation.start();
+
+    return () => {
+      bar1Animation.stop();
+      bar2Animation.stop();
+      bar4Animation.stop();
+      bar5Animation.stop();
+      ballAnimation.stop();
+    };
+  }, [bar1Anim, bar2Anim, bar4Anim, bar5Anim, ballAnimX, ballAnimY]);
+
+  const barWidth = size * 0.133; // 10/75
+  const barSpacing = size * 0.2; // 15/75
+  const barHeight = size * 0.667; // 50/75
+
+  return (
+    <View style={[loaderStyles.container, { width: size, height: size * 1.33 }]}>
+      {/* Bar 1 */}
+      <Animated.View
+        style={[
+          loaderStyles.bar,
+          {
+            left: 0,
+            width: barWidth,
+            height: barHeight,
+            backgroundColor: barColor,
+            transform: [{ scaleY: bar1Anim }],
+          },
+        ]}
+      />
+      
+      {/* Bar 2 */}
+      <Animated.View
+        style={[
+          loaderStyles.bar,
+          {
+            left: barSpacing,
+            width: barWidth,
+            height: barHeight,
+            backgroundColor: barColor,
+            transform: [{ scaleY: bar2Anim }],
+          },
+        ]}
+      />
+      
+      {/* Bar 3 (static) */}
+      <View
+        style={[
+          loaderStyles.bar,
+          {
+            left: barSpacing * 2,
+            width: barWidth,
+            height: barHeight,
+            backgroundColor: barColor,
+            transform: [{ scaleY: 0.6 }],
+          },
+        ]}
+      />
+      
+      {/* Bar 4 */}
+      <Animated.View
+        style={[
+          loaderStyles.bar,
+          {
+            left: barSpacing * 3,
+            width: barWidth,
+            height: barHeight,
+            backgroundColor: barColor,
+            transform: [{ scaleY: bar4Anim }],
+          },
+        ]}
+      />
+      
+      {/* Bar 5 */}
+      <Animated.View
+        style={[
+          loaderStyles.bar,
+          {
+            left: barSpacing * 4,
+            width: barWidth,
+            height: barHeight,
+            backgroundColor: barColor,
+            transform: [{ scaleY: bar5Anim }],
+          },
+        ]}
+      />
+      
+      {/* Bouncing Ball */}
+      <Animated.View
+        style={[
+          loaderStyles.ball,
+          {
+            width: barWidth,
+            height: barWidth,
+            backgroundColor: color,
+            transform: [
+              { translateX: ballAnimX },
+              { translateY: ballAnimY },
+            ],
+          },
+        ]}
+      />
+    </View>
+  );
+};
+
 const HomePage = () => {
   const navigation = useNavigation();
   const [modalVisible, setModalVisible] = useState(false);
   const [infoDropdownVisible, setInfoDropdownVisible] = useState(false);
   const [location, setLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
   const [currentDate, setCurrentDate] = useState('');
@@ -159,7 +446,7 @@ const HomePage = () => {
         icon: getWeatherIcon(iconCode),
         humidity: data.main.humidity,
         windSpeed: data.wind.speed,
-       // feelsLike: Math.round(data.main.feels_like)
+        // feelsLike: Math.round(data.main.feels_like)
       });
     } catch (error) {
       console.error('Error fetching weather:', error);
@@ -172,6 +459,76 @@ const HomePage = () => {
       setWeatherLoading(false);
     }
   }, [getWeatherIcon]);
+
+  // Enhanced location name resolver with multiple fallback strategies
+  const getLocationNameWithFallbacks = useCallback(async (latitude, longitude) => {
+    // Strategy 1: Try Expo's reverse geocoding with longer timeout
+    try {
+      const geocodePromise = Location.reverseGeocodeAsync({
+        latitude,
+        longitude,
+      });
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Geocoding timeout')), 8000) // Increased to 8 seconds
+      );
+
+      const geocode = await Promise.race([geocodePromise, timeoutPromise]);
+      
+      if (geocode && geocode.length > 0) {
+        const location = geocode[0];
+        
+        // Try to build the most descriptive name possible
+        if (location.city && location.region) {
+          return `${location.city}, ${location.region}`;
+        } else if (location.district && location.region) {
+          return `${location.district}, ${location.region}`;
+        } else if (location.subregion && location.region) {
+          return `${location.subregion}, ${location.region}`;
+        } else if (location.city) {
+          return location.city;
+        } else if (location.district) {
+          return location.district;
+        } else if (location.subregion) {
+          return location.subregion;
+        } else if (location.region) {
+          return location.region;
+        } else if (location.country) {
+          return location.country;
+        }
+      }
+    } catch (error) {
+      console.log('Expo geocoding failed:', error);
+    }
+
+    // Strategy 2: Try OpenWeatherMap's reverse geocoding (since you're already using their API)
+    try {
+      const response = await fetch(
+        `https://api.openweathermap.org/geo/1.0/reverse?lat=${latitude}&lon=${longitude}&limit=1&appid=${WEATHER_API_KEY}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0) {
+          const location = data[0];
+          if (location.name && location.state) {
+            return `${location.name}, ${location.state}`;
+          } else if (location.name) {
+            return location.name;
+          } else if (location.state) {
+            return location.state;
+          }
+        }
+      }
+    } catch (error) {
+      console.log('OpenWeatherMap geocoding failed:', error);
+    }
+
+    // Strategy 3: Use coordinates as fallback
+    const latStr = latitude.toFixed(4);
+    const lonStr = longitude.toFixed(4);
+    return `${latStr}°, ${lonStr}°`;
+  }, []);
 
   // Update time and date
   const updateDateTime = useCallback(() => {
@@ -190,64 +547,50 @@ const HomePage = () => {
     setCurrentDate(dateString);
   }, []);
 
-  // Get location with better error handling
-  const getLocation = useCallback(async () => {
-    try {
-      setLocationError(false);
-      
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationError(true);
-        setLocationName('Location permission denied');
-        return;
-      }
-
-      const locationData = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-        timeout: LOCATION_TIMEOUT,
-      });
-
-      const { latitude, longitude } = locationData.coords;
-      setLocation(locationData.coords);
-      
-      // Fetch weather data for the current location
-      await fetchWeatherData(latitude, longitude);
-      
-      // Reverse geocode with timeout
-      const geocodePromise = Location.reverseGeocodeAsync({
-        latitude,
-        longitude,
-      });
-
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Geocoding timeout')), 5000)
-      );
-
+  // Get location with better error handling and retry mechanism
+  const getLocation = useCallback(async (maxRetries = 2) => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const geocode = await Promise.race([geocodePromise, timeoutPromise]);
+        setLocationError(false);
         
-        if (geocode.length > 0) {
-          const { city, region, country } = geocode[0];
-          if (city && region) {
-            setLocationName(`${city}, ${region}`);
-          } else if (city) {
-            setLocationName(city);
-          } else if (region) {
-            setLocationName(region);
-          } else if (country) {
-            setLocationName(country);
-          }
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setLocationError(true);
+          setLocationName('Location permission denied');
+          return;
         }
-      } catch (geocodeError) {
-        console.log('Geocoding failed:', geocodeError);
-        setLocationName('Location found');
+
+        const locationData = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          timeout: LOCATION_TIMEOUT,
+        });
+
+        const { latitude, longitude } = locationData.coords;
+        setLocation(locationData.coords);
+        
+        // Fetch weather data for the current location
+        await fetchWeatherData(latitude, longitude);
+        
+        // Try multiple approaches for getting location name
+        const locationName = await getLocationNameWithFallbacks(latitude, longitude);
+        setLocationName(locationName);
+        
+        return; // Success, exit retry loop
+        
+      } catch (error) {
+        console.error(`Location attempt ${attempt + 1} failed:`, error);
+        
+        if (attempt === maxRetries) {
+          // Final attempt failed
+          setLocationError(true);
+          setLocationName('Location unavailable');
+        } else {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       }
-    } catch (error) {
-      console.error('Error getting location:', error);
-      setLocationError(true);
-      setLocationName('Location unavailable');
     }
-  }, [fetchWeatherData]);
+  }, [fetchWeatherData, getLocationNameWithFallbacks]);
 
   // Handle info dropdown toggle
   const toggleInfoDropdown = useCallback(() => {
@@ -277,6 +620,7 @@ const HomePage = () => {
       updateDateTime();
       await getLocation();
       setLoading(false);
+      setInitialLoading(false);
       
       // Animate in
       Animated.parallel([
@@ -321,7 +665,7 @@ const HomePage = () => {
           style: "destructive",
           onPress: () => {
             // In a real app, this would make an actual emergency call
-            Linking.openURL('tel:0531771042');
+            Linking.openURL('tel:0506528336'); // Replace with actual emergency number
             Alert.alert("Emergency", "Emergency services have been contacted!");
           }
         }
@@ -396,6 +740,37 @@ const HomePage = () => {
   const currentWeatherPrompt = useMemo(() => {
     return getWeatherPrompt(weatherData.condition);
   }, [weatherData.condition, getWeatherPrompt]);
+
+  // Location Status Component
+  const LocationStatus = () => {
+    if (loading) {
+      return (
+        <View style={styles.locationStatus}>
+          <AnimatedLoader size={wp(4)} color="#0EA5E9" barColor="#64748B" />
+          <Text style={styles.locationStatusText}>Finding your location...</Text>
+        </View>
+      );
+    }
+    
+    if (locationError) {
+      return (
+        <TouchableOpacity 
+          style={styles.locationStatus}
+          onPress={() => {
+            setLoading(true);
+            getLocation().finally(() => setLoading(false));
+          }}
+        >
+          <Ionicons name="refresh-outline" size={wp(4)} color="#F59E0B" />
+          <Text style={[styles.locationStatusText, { color: '#F59E0B' }]}>
+            Tap to retry location
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    
+    return null;
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -507,7 +882,11 @@ const HomePage = () => {
             <View style={styles.weatherInfo}>
               <View style={styles.weatherItem}>
                 {weatherLoading ? (
-                  <ActivityIndicator size="small" color="#F59E0B" />
+                  <AnimatedLoader 
+                    size={wp(8)} 
+                    color="#F59E0B" 
+                    barColor="#64748B" 
+                  />
                 ) : (
                   <Ionicons name={weatherData.icon} size={wp(4)} color="#F59E0B" />
                 )}
@@ -519,6 +898,7 @@ const HomePage = () => {
                 <Ionicons name="location-outline" size={wp(4)} color="#64748B" />
                 <Text style={styles.weatherText} numberOfLines={1}>{locationName}</Text>
               </View>
+              <LocationStatus />
               {weatherData.feelsLike && (
                 <View style={styles.weatherItem}>
                   <Ionicons name="thermometer-outline" size={wp(4)} color="#64748B" />
@@ -556,7 +936,11 @@ const HomePage = () => {
               {loading ? (
                 <View style={styles.loaderContainer}>
                   <View style={styles.loaderContent}>
-                    <ActivityIndicator size="large" color="#0EA5E9" />
+                    <AnimatedLoader 
+                      size={wp(20)} 
+                      color="#0EA5E9" 
+                      barColor="#475569" 
+                    />
                     <Text style={styles.loadingText}>Loading your location...</Text>
                   </View>
                 </View>
@@ -736,12 +1120,51 @@ const HomePage = () => {
           activeOpacity={1}
         />
       )}
+
+      {/* Full Screen Initial Loader */}
+      {initialLoading && (
+        <View style={styles.fullScreenLoader}>
+          <AnimatedLoader 
+            size={wp(25)} 
+            color="#0EA5E9" 
+            barColor="#475569" 
+          />
+          <Text style={styles.fullScreenLoadingText}>Welcome back!</Text>
+          <Text style={styles.fullScreenLoadingSubtext}>Getting everything ready...</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
 
 export default HomePage;
 
+// Loader component styles
+const loaderStyles = StyleSheet.create({
+  container: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  bar: {
+    position: 'absolute',
+    bottom: 0,
+    transformOrigin: 'center bottom',
+    shadowColor: '#000',
+    shadowOffset: { width: 1, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
+  },
+  ball: {
+    position: 'absolute',
+    bottom: 10,
+    left: 0,
+    borderRadius: 50,
+  },
+});
+
+// Main component styles
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -930,6 +1353,22 @@ const styles = StyleSheet.create({
     marginLeft: wp(1.5),
     fontWeight: '500',
     flex: 1,
+  },
+  // Location Status styles
+  locationStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp(3),
+    paddingVertical: wp(1.5),
+    backgroundColor: '#F1F5F9',
+    borderRadius: wp(2),
+    marginTop: hp(0.5),
+  },
+  locationStatusText: {
+    fontSize: wp(3),
+    color: '#64748B',
+    marginLeft: wp(1.5),
+    fontWeight: '500',
   },
   quickActions: {
     marginBottom: hp(3),
@@ -1193,5 +1632,30 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? wp(3.5) : wp(4),
     color: '#DC2626',
     fontWeight: '600',
+  },
+  // Full screen loader styles
+  fullScreenLoader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  fullScreenLoadingText: {
+    fontSize: wp(5),
+    fontWeight: '700',
+    color: '#0F172A',
+    marginTop: hp(3),
+    textAlign: 'center',
+  },
+  fullScreenLoadingSubtext: {
+    fontSize: wp(3.5),
+    color: '#64748B',
+    marginTop: hp(0.5),
+    textAlign: 'center',
   },
 });

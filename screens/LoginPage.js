@@ -24,6 +24,7 @@ export default function LoginPage({ navigation }) {
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false); // New state for password visibility
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -151,6 +152,11 @@ const handleLogin = async () => {
     outputRange: ['0deg', '360deg']
   });
 
+  // Function to toggle password visibility
+  const togglePasswordVisibility = () => {
+    setShowPassword(!showPassword);
+  };
+
   return (
     <SafeAreaView style={styles.wrapper}>
       <View style={styles.backgroundDecoration}>
@@ -212,21 +218,37 @@ const handleLogin = async () => {
 
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Password</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  passwordFocused && styles.inputFocused,
-                  password && styles.inputFilled
-                ]}
-                placeholder="Enter your password"
-                placeholderTextColor="#94A3B8"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                onFocus={() => setPasswordFocused(true)}
-                onBlur={() => setPasswordFocused(false)}
-                editable={!isLoading}
-              />
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    styles.passwordInput,
+                    passwordFocused && styles.inputFocused,
+                    password && styles.inputFilled
+                  ]}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#94A3B8"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  onFocus={() => setPasswordFocused(true)}
+                  onBlur={() => setPasswordFocused(false)}
+                  editable={!isLoading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={togglePasswordVisibility}
+                  disabled={isLoading}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[
+                    styles.eyeIcon,
+                    isLoading && styles.eyeIconDisabled
+                  ]}>
+                    {showPassword ? '🙈' : '👁️'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <Animated.View style={[styles.buttonContainer, { transform: [{ scale: scaleAnim }] }]}>
@@ -413,6 +435,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderColor: '#10B981',
   },
+  // New styles for password container and eye button
+  passwordContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 60, // Make room for the eye button
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyeIcon: {
+    fontSize: 20,
+    opacity: 0.7,
+  },
+  eyeIconDisabled: {
+    opacity: 0.3,
+  },
   buttonContainer: {
     marginTop: 10,
     marginBottom: 30,
@@ -498,6 +542,7 @@ const styles = StyleSheet.create({
   disabledLink: {
     opacity: 0.5,
   },
+  
 });
 
 //scam5152@gmail.com//

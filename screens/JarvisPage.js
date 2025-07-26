@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   SafeAreaView,
   View,
@@ -12,6 +12,153 @@ import {
   Animated,
 } from "react-native";
 import axios from "axios";
+
+// 3D Sphere Loader Component
+const SphereLoader = () => {
+  const animatedValues = useRef(
+    Array.from({ length: 9 }, () => ({
+      rotation: new Animated.Value(0),
+      scale: new Animated.Value(1),
+      opacity: new Animated.Value(0.3),
+    }))
+  ).current;
+
+  const mainRotation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Main container rotation
+    const mainRotationAnimation = Animated.loop(
+      Animated.timing(mainRotation, {
+        toValue: 1,
+        duration: 8000,
+        useNativeDriver: true,
+      })
+    );
+
+    // Individual sphere animations
+    const sphereAnimations = animatedValues.map((values, index) => {
+      const rotationAnimation = Animated.loop(
+        Animated.timing(values.rotation, {
+          toValue: 1,
+          duration: 3000 + index * 200, // Staggered timing
+          useNativeDriver: true,
+        })
+      );
+
+      const scaleAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(values.scale, {
+            toValue: 1.2,
+            duration: 1500 + index * 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(values.scale, {
+            toValue: 0.8,
+            duration: 1500 + index * 100,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+
+      const opacityAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(values.opacity, {
+            toValue: 0.7,
+            duration: 2000 + index * 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(values.opacity, {
+            toValue: 0.2,
+            duration: 2000 + index * 150,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+
+      return Animated.parallel([rotationAnimation, scaleAnimation, opacityAnimation]);
+    });
+
+    mainRotationAnimation.start();
+    sphereAnimations.forEach(animation => animation.start());
+
+    return () => {
+      mainRotationAnimation.stop();
+      sphereAnimations.forEach(animation => animation.stop());
+    };
+  }, []);
+
+  const mainRotationInterpolate = mainRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const sphereColors = [
+    'rgba(14, 165, 233, 0.6)',   // Primary blue
+    'rgba(14, 165, 233, 0.4)',   // Lighter blue
+    'rgba(14, 165, 233, 0.5)',   // Medium blue
+    'rgba(56, 189, 248, 0.6)',   // Sky blue
+    'rgba(56, 189, 248, 0.4)',   // Light sky blue
+    'rgba(14, 165, 233, 0.7)',   // Deeper blue
+    'rgba(96, 165, 250, 0.5)',   // Soft blue
+    'rgba(30, 144, 255, 0.6)',   // Dodger blue
+    'rgba(14, 165, 233, 0.3)',   // Very light blue
+  ];
+
+  const positions = [
+    { x: 0, y: -80 },      // Top
+    { x: 60, y: -40 },     // Top right
+    { x: 80, y: 0 },       // Right
+    { x: 60, y: 40 },      // Bottom right
+    { x: 0, y: 80 },       // Bottom
+    { x: -60, y: 40 },     // Bottom left
+    { x: -80, y: 0 },      // Left
+    { x: -60, y: -40 },    // Top left
+    { x: 0, y: 0 },        // Center
+  ];
+
+  return (
+    <View style={styles.sphereContainer}>
+      <Animated.View
+        style={[
+          styles.sphereLoader,
+          {
+            transform: [{ rotate: mainRotationInterpolate }],
+          },
+        ]}
+      >
+        {animatedValues.map((values, index) => {
+          const rotationInterpolate = values.rotation.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['0deg', '360deg'],
+          });
+
+          return (
+            <Animated.View
+              key={index}
+              style={[
+                styles.sphere,
+                {
+                  backgroundColor: sphereColors[index],
+                  left: positions[index].x + 100,
+                  top: positions[index].y + 100,
+                  transform: [
+                    { rotate: rotationInterpolate },
+                    { scale: values.scale },
+                  ],
+                  opacity: values.opacity,
+                },
+              ]}
+            >
+              {/* Inner rotating elements to simulate 3D effect */}
+              <View style={[styles.sphereInner, { backgroundColor: sphereColors[index] }]} />
+              <View style={[styles.sphereCore, { backgroundColor: sphereColors[index] }]} />
+            </Animated.View>
+          );
+        })}
+      </Animated.View>
+    </View>
+  );
+};
 
 export default function App({ navigation }) {
   const [messages, setMessages] = useState([
@@ -145,6 +292,9 @@ export default function App({ navigation }) {
         </View>
 
         <View style={styles.messagesContainer}>
+          {/* 3D Sphere Background Loader */}
+          <SphereLoader />
+          
           <FlatList
             ref={flatListRef}
             data={messages}
@@ -279,6 +429,7 @@ const styles = StyleSheet.create({
   messagesContainer: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+    position: 'relative',
   },
   messageList: { 
     padding: 20,
@@ -378,11 +529,53 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
   },
+  
+  // 3D Sphere Loader Styles
+  sphereContainer: {
+    position: 'absolute',
+    top: '45%',
+    left: '50%',
+    transform: [{ translateX: -100 }, { translateY: -100 }],
+    zIndex: 0,
+    opacity: 0.12,
+  },
+  sphereLoader: {
+    width: 200,
+    height: 200,
+    position: 'relative',
+  },
+  sphere: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    shadowColor: '#0EA5E9',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  sphereInner: {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    top: 4,
+    left: 4,
+    opacity: 0.7,
+  },
+  sphereCore: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    top: 8,
+    left: 8,
+    opacity: 1,
+    shadowColor: '#0EA5E9',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 3,
+  },
 });
-
-
-
-
-
-
-//.  AIzaSyCfV7ZB5cO3OUUP3EMEee6jAn3dzPndlpY //
