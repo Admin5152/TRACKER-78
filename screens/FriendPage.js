@@ -22,6 +22,15 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authenticatedFetch } from '../utils/api'; // Ensure this path is correct
+import { useIsFocused } from '@react-navigation/native';
+import { account } from '../lib/appwriteConfig'; // Update path if needed
+import { useFriends, randomNearbyCoords } from '../components/FriendsContext';
+import * as Location from 'expo-location';
+import CircleManager from '../components/CircleManager';
+import LocalCircleManager from '../components/LocalCircleManager';
+import AuthCheck from '../components/AuthCheck';
+import { friendsAPI, getCurrentUserId, handleAPIError } from '../utils/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -30,9 +39,8 @@ export default function FriendTrackingSystem() {
   const [addFriendModalVisible, setAddFriendModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [newFriendContact, setNewFriendContact] = useState("");
-  const [peopleYouTrack, setPeopleYouTrack] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
-  const [loading, setLoading] = useState(true); // Start with loading true
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [requestLoading, setRequestLoading] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -41,28 +49,183 @@ export default function FriendTrackingSystem() {
   const [removeModalVisible, setRemoveModalVisible] = useState(false);
   const [selectedFriendToRemove, setSelectedFriendToRemove] = useState(null);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+  
+  // New states for API integration
+  const [useApiData, setUseApiData] = useState(true);
+  const [loadingApiData, setLoadingApiData] = useState(false);
+  const [circleMembers, setCircleMembers] = useState([]);
+  const [circleManagerVisible, setCircleManagerVisible] = useState(false);
+  const [backendMode, setBackendMode] = useState(false); // Default to local mode
+  const [backendFriends, setBackendFriends] = useState([]);
+  const [loadingBackendFriends, setLoadingBackendFriends] = useState(false);
+  const [authCheckVisible, setAuthCheckVisible] = useState(false);
 
   const navigation = useNavigation();
+
+  // Replace with your actual circle ID
+  const CIRCLE_ID = 1;
 
   // Storage keys
   const STORAGE_KEYS = {
     PEOPLE_YOU_TRACK: '@FriendTracking:peopleYouTrack',
-    PENDING_REQUESTS: '@FriendTracking:pendingRequests',
+    PENDING_REQUESTS: '@FriendTracking:pendingRequxests',
     NOTIFICATIONS: '@FriendTracking:notifications',
+    USE_API_DATA: '@FriendTracking:useApiData',
+  };
+
+  const { friends, addFriend, removeFriend, loading: friendsLoading } = useFriends();
+
+  // Load circle members from API
+  const loadCircleMembers = async () => {
+    if (!useApiData) return;
+    
+    setLoadingApiData(true);
+    try {
+      const response = await authenticatedFetch(
+        `https://api.yourdomain.com/api/circles/${CIRCLE_ID}/locations`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const membersData = await response.json();
+      console.log('Loaded circle members:', membersData);
+      
+      // Transform API data to match friends format
+      const transformedMembers = membersData.map(member => ({
+        id: member.appwriteId,
+        name: member.username || `User ${member.appwriteId.slice(-4)}`,
+        contact: member.email || member.phone || 'No contact info',
+        location: member.latitude && member.longitude ? 
+          `${member.latitude.toFixed(4)}, ${member.longitude.toFixed(4)}` : 
+          'Location shared',
+        activity: member.statusMessage || 'Available',
+        statusColor: member.isOnline ? "#10B981" : "#6B7280",
+        time: new Date(member.timestamp).toLocaleTimeString(),
+        image: member.profileImage || `https://images.unsplash.com/photo-${500 + Math.floor(Math.random() * 100)}?w=100&h=100&fit=crop&crop=face`,
+        isOnline: member.isOnline || false
+      }));
+      
+      setCircleMembers(transformedMembers);
+      addNotification(`Loaded ${transformedMembers.length} friends from API`, 'success');
+    } catch (error) {
+      console.error('Error loading circle members:', error);
+      addNotification('Failed to load API data, using stored data', 'error');
+      setUseApiData(false); // Fallback to stored data
+    } finally {
+      setLoadingApiData(false);
+    }
+  };
+
+  // Load friends from backend
+  const loadBackendFriends = async () => {
+    setLoadingBackendFriends(true);
+    try {
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        console.log('User not authenticated, using local mode');
+        setBackendMode(false);
+        return;
+      }
+
+      const response = await friendsAPI.getUserFriends(userId);
+      const backendFriendsData = response.documents || [];
+      
+      // Transform backend data to match local format
+      const transformedFriends = backendFriendsData.map(friend => ({
+        id: friend.$id,
+        name: friend.name,
+        contact: friend.contact,
+        activity: 'Available',
+        statusColor: '#10B981',
+        time: 'Just now',
+        image: `https://images.unsplash.com/photo-${500 + Math.floor(Math.random() * 100)}?w=100&h=100&fit=crop&crop=face`,
+        isOnline: true,
+        // Add random location for demo (in real app, this would come from location API)
+        ...randomNearbyCoords()
+      }));
+      
+      setBackendFriends(transformedFriends);
+      setBackendMode(true);
+    } catch (error) {
+      console.error('Error loading backend friends:', error);
+      setBackendMode(false);
+    } finally {
+      setLoadingBackendFriends(false);
+    }
+  };
+
+  // Add friend to backend
+  const addFriendToBackend = async (friendData) => {
+    try {
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        throw new Error('User not authenticated');
+      }
+
+      const backendFriendData = {
+        name: friendData.name,
+        contact: friendData.contact,
+        contactType: friendData.contactType || 'email',
+        addedBy: userId,
+      };
+
+      const response = await friendsAPI.addFriend(backendFriendData);
+      return response;
+    } catch (error) {
+      console.error('Error adding friend to backend:', error);
+      throw error;
+    }
+  };
+
+  // Remove friend from backend
+  const removeFriendFromBackend = async (friendId) => {
+    try {
+      await friendsAPI.removeFriend(friendId);
+    } catch (error) {
+      console.error('Error removing friend from backend:', error);
+      throw error;
+    }
+  };
+
+  // Handle circle creation
+  const handleCircleCreated = (newCircle) => {
+    addNotification(`Circle "${newCircle.name}" created successfully!`, 'success');
+    // Optionally refresh friends or circles data
+  };
+
+  // Toggle between local and backend mode
+  const toggleBackendMode = () => {
+    if (backendMode) {
+      setBackendMode(false);
+      addNotification('Switched to local mode', 'info');
+    } else {
+      loadBackendFriends();
+    }
+  };
+
+  // Get current friends data based on mode
+  const getCurrentFriendsData = () => {
+    if (backendMode && backendFriends.length > 0) {
+      return backendFriends;
+    }
+    return friends;
   };
 
   // Load data from AsyncStorage
   const loadStoredData = async () => {
     try {
       setLoading(true);
-      const [storedPeople, storedRequests, storedNotifications] = await Promise.all([
+      const [storedPeople, storedRequests, storedNotifications, storedUseApi] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.PEOPLE_YOU_TRACK),
         AsyncStorage.getItem(STORAGE_KEYS.PENDING_REQUESTS),
         AsyncStorage.getItem(STORAGE_KEYS.NOTIFICATIONS),
+        AsyncStorage.getItem(STORAGE_KEYS.USE_API_DATA),
       ]);
 
       if (storedPeople) {
-        setPeopleYouTrack(JSON.parse(storedPeople));
+        // setPeopleYouTrack(JSON.parse(storedPeople)); // This state is removed
       }
 
       if (storedRequests) {
@@ -71,6 +234,10 @@ export default function FriendTrackingSystem() {
 
       if (storedNotifications) {
         setNotifications(JSON.parse(storedNotifications));
+      }
+
+      if (storedUseApi !== null) {
+        setUseApiData(JSON.parse(storedUseApi));
       }
 
       setIsDataLoaded(true);
@@ -91,13 +258,6 @@ export default function FriendTrackingSystem() {
     }
   };
 
-  // Save people you track whenever it changes
-  useEffect(() => {
-    if (isDataLoaded) {
-      saveDataToStorage(STORAGE_KEYS.PEOPLE_YOU_TRACK, peopleYouTrack);
-    }
-  }, [peopleYouTrack, isDataLoaded]);
-
   // Save pending requests whenever it changes
   useEffect(() => {
     if (isDataLoaded) {
@@ -112,12 +272,29 @@ export default function FriendTrackingSystem() {
     }
   }, [notifications, isDataLoaded]);
 
+  // Save API preference whenever it changes
+  useEffect(() => {
+    if (isDataLoaded) {
+      saveDataToStorage(STORAGE_KEYS.USE_API_DATA, useApiData);
+    }
+  }, [useApiData, isDataLoaded]);
+
   // Load data when component mounts or when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (!isDataLoaded) {
         loadStoredData();
       }
+      
+      // Load API data if enabled
+      if (useApiData && isDataLoaded) {
+        loadCircleMembers();
+      }
+      
+      // Disable automatic backend loading to prevent errors
+      // if (isDataLoaded) {
+      //   loadBackendFriends();
+      // }
       
       // Animate header when screen comes into focus
       Animated.parallel([
@@ -128,21 +305,27 @@ export default function FriendTrackingSystem() {
         }),
         Animated.timing(slideAnim, {
           toValue: 0,
-          duration: 600,
+          duration: 800,
           useNativeDriver: true,
         }),
       ]).start();
-    }, [fadeAnim, slideAnim, isDataLoaded])
+    }, [isDataLoaded, useApiData])
   );
 
-  // Real-time updates - Check for accepted requests
+  // Real-time updates - Check for accepted requests and refresh API data
   useEffect(() => {
     let interval;
     
     if (isDataLoaded) {
       interval = setInterval(() => {
-        checkForRequestUpdates();
-      }, 3000); // Check every 3 seconds
+        if (!useApiData) {
+          checkForRequestUpdates();
+        }
+        // Refresh API data every 30 seconds if enabled
+        if (useApiData && !loadingApiData) {
+          loadCircleMembers();
+        }
+      }, useApiData ? 30000 : 3000); // 30 seconds for API, 3 seconds for local updates
     }
 
     return () => {
@@ -150,11 +333,11 @@ export default function FriendTrackingSystem() {
         clearInterval(interval);
       }
     };
-  }, [checkForRequestUpdates, isDataLoaded]);
+  }, [isDataLoaded, useApiData, loadingApiData]);
 
-  // Mock function to simulate checking for request updates
+  // Mock function to simulate checking for request updates (only for local mode)
   const checkForRequestUpdates = useCallback(() => {
-    if (!isDataLoaded) return;
+    if (!isDataLoaded || useApiData) return; // Skip for API mode
     
     setPendingRequests(prev => {
       const updated = [...prev];
@@ -177,7 +360,7 @@ export default function FriendTrackingSystem() {
           isOnline: true
         }));
 
-        setPeopleYouTrack(current => [...current, ...newFriends]);
+        // setPeopleYouTrack(current => [...current, ...newFriends]); // This state is removed
         
         // Add success notifications
         newFriends.forEach(friend => {
@@ -190,7 +373,7 @@ export default function FriendTrackingSystem() {
       
       return prev;
     });
-  }, [isDataLoaded]);
+  }, [isDataLoaded, useApiData]);
 
   const addNotification = (message, type = 'info') => {
     const notification = {
@@ -219,10 +402,21 @@ export default function FriendTrackingSystem() {
     return emailRegex.test(contact) ? 'email' : 'phone';
   };
 
-  // Add this function to handle removing a friend
-  const removeFriend = (friendId) => {
-    setPeopleYouTrack(current => current.filter(friend => friend.id !== friendId));
-    addNotification(`Friend removed successfully`, 'success');
+  // Update remove friend to work with both modes
+  const handleRemoveFriend = async (friendId) => {
+    if (backendMode) {
+      try {
+        await removeFriendFromBackend(friendId);
+        await loadBackendFriends(); // Refresh backend friends
+        addNotification('Friend removed from backend successfully', 'success');
+      } catch (error) {
+        const errorInfo = handleAPIError(error);
+        addNotification(`Backend error: ${errorInfo.message}`, 'error');
+      }
+    } else {
+      removeFriend(friendId);
+      addNotification('Friend removed successfully', 'success');
+    }
     setRemoveModalVisible(false);
     setSelectedFriendToRemove(null);
   };
@@ -232,36 +426,46 @@ export default function FriendTrackingSystem() {
     setRemoveModalVisible(true);
   };
 
+  // Toggle between API and local data
+  const toggleDataSource = () => {
+    const newUseApi = !useApiData;
+    setUseApiData(newUseApi);
+    
+    if (newUseApi) {
+      addNotification('Switched to API mode', 'info');
+      // Load API data immediately
+      loadCircleMembers();
+    } else {
+      addNotification('Switched to local mode', 'info');
+    }
+  };
+
+  // Update sendTrackingRequest to work with both modes
   const sendTrackingRequest = async () => {
     if (!newFriendContact.trim() || !validateContact(newFriendContact.trim())) {
       Alert.alert('Invalid Contact', 'Please enter a valid email address or phone number');
       return;
     }
-
     const contact = newFriendContact.trim();
     const contactType = getContactType(contact);
-
-    // Check if already tracking or request pending
-    const alreadyTracking = peopleYouTrack.some(friend => friend.contact === contact);
+    
+    const currentFriends = getCurrentFriendsData();
+    const alreadyTracking = currentFriends.some(friend => friend.contact === contact);
     const requestPending = pendingRequests.some(req => req.contact === contact);
-
+    
     if (alreadyTracking) {
       Alert.alert('Already Tracking', 'You are already tracking this person!');
       return;
     }
-
     if (requestPending) {
       Alert.alert('Request Pending', 'Request already sent to this contact!');
       return;
     }
-
+    
     setRequestLoading(true);
-
     try {
-      // Send SMS or Email
       await simulateSendRequest(contact, contactType);
       
-      // Add to pending requests
       const newRequest = {
         id: Date.now(),
         contact,
@@ -279,6 +483,46 @@ export default function FriendTrackingSystem() {
       setNewFriendContact("");
       setAddFriendModalVisible(false);
       
+      // Get user's current location for base
+      let baseLat = 5.6037, baseLng = -0.1870;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          baseLat = loc.coords.latitude;
+          baseLng = loc.coords.longitude;
+        }
+      } catch (e) { /* fallback to default */ }
+      
+      // Auto-accept after 2 seconds
+      setTimeout(async () => {
+        const friendData = {
+          name: contactType === 'email' ? contact.split('@')[0] : `Friend ${contact.slice(-4)}`,
+          contact,
+          activity: 'Available',
+          statusColor: '#10B981',
+          time: 'Just now',
+          image: `https://images.unsplash.com/photo-${500 + Math.floor(Math.random() * 100)}?w=100&h=100&fit=crop&crop=face`,
+          isOnline: true,
+          contactType
+        };
+
+        if (backendMode) {
+          try {
+            await addFriendToBackend(friendData);
+            await loadBackendFriends(); // Refresh backend friends
+            addNotification(`${contact} added to backend successfully!`, 'success');
+          } catch (error) {
+            const errorInfo = handleAPIError(error);
+            addNotification(`Backend error: ${errorInfo.message}`, 'error');
+          }
+        } else {
+          addFriend(friendData, baseLat, baseLng);
+          addNotification(`${contact} accepted your request!`, 'success');
+        }
+        
+        setPendingRequests(prev => prev.filter(r => r.contact !== contact));
+      }, 2000);
     } catch (error) {
       console.error('Error sending request:', error);
       addNotification('Failed to send request. Please try again.', 'error');
@@ -330,25 +574,7 @@ export default function FriendTrackingSystem() {
     }
   };
 
-  const handleEmergency = () => {
-    Alert.alert(
-      "Emergency Alert", 
-      "Emergency services will be contacted and your location will be shared with your emergency contacts.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Call Emergency", 
-          style: "destructive",
-          onPress: () => {
-            // Call emergency services
-            Linking.openURL('tel:0506528336'); // Replace with actual emergency number
-            // Share location with tracked friends
-            addNotification('Emergency alert sent to all friends', 'error');
-          }
-        }
-      ]
-    );
-  };
+  // Remove emergency function - no longer needed
 
   // Add function to clear all data (useful for testing or reset)
   const clearAllData = async () => {
@@ -358,9 +584,10 @@ export default function FriendTrackingSystem() {
         STORAGE_KEYS.PENDING_REQUESTS,
         STORAGE_KEYS.NOTIFICATIONS,
       ]);
-      setPeopleYouTrack([]);
+      // setPeopleYouTrack([]); // This state is removed
       setPendingRequests([]);
       setNotifications([]);
+      setCircleMembers([]);
       addNotification('All data cleared successfully', 'success');
     } catch (error) {
       console.error('Error clearing data:', error);
@@ -368,7 +595,8 @@ export default function FriendTrackingSystem() {
     }
   };
 
-  const filteredPeople = peopleYouTrack.filter(person =>
+  const currentFriends = getCurrentFriendsData();
+  const filteredPeople = currentFriends.filter(person =>
     person.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     person.contact.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -422,7 +650,7 @@ export default function FriendTrackingSystem() {
           </View>
           <View style={styles.contactRow}>
             <Text style={styles.contactIcon}>📱</Text>
-            <Text style={styles.contactText}>{item.contact}</Text>
+            <Text style={styles.contact}>{item.contact}</Text>
           </View>
         </View>
         <View style={styles.timeContainer}>
@@ -491,11 +719,19 @@ export default function FriendTrackingSystem() {
 
   const renderPlaceholder = () => (
     <View style={styles.placeholderContainer}>
-      <Text style={styles.placeholderIcon}>👥</Text>
+      <View style={styles.placeholderIconContainer}>
+        <Text style={styles.placeholderIcon}>👥</Text>
+      </View>
       <Text style={styles.placeholderTitle}>Start Tracking Friends</Text>
       <Text style={styles.placeholderSubtitle}>
-        Send tracking requests to your friends via SMS or email. When they accept, you'll see their location here!
+        Add friends to start tracking their locations. Send tracking requests via email or phone number.
       </Text>
+      <TouchableOpacity 
+        style={styles.placeholderButton}
+        onPress={() => setAddFriendModalVisible(true)}
+      >
+        <Text style={styles.placeholderButtonText}>Add Your First Friend</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -537,9 +773,30 @@ export default function FriendTrackingSystem() {
               <View style={styles.titleContainer}>
                 <Text style={styles.header}>People You Track</Text>
                 <Text style={styles.subtitle}>
-                  {peopleYouTrack.length} friends • {pendingRequests.length} pending
+                  {filteredPeople.length} friends • {pendingRequests.length} pending • Local mode
                 </Text>
               </View>
+              {/* <TouchableOpacity 
+                style={[styles.dataToggleButton, { opacity: 0.5 }]} // Make it less prominent
+                onPress={toggleBackendMode}
+              >
+                <Text style={styles.dataToggleText}>
+                  {backendMode ? '☁️' : '🔗'}
+                </Text>
+                {loadingBackendFriends && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color="#3B82F6" 
+                    style={styles.loadingIndicator}
+                  />
+                )}
+              </TouchableOpacity> */}
+              <TouchableOpacity 
+                style={styles.circleButton}
+                onPress={() => setCircleManagerVisible(true)}
+              >
+                <Text style={styles.circleButtonText}>👥</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.notificationButton}>
                 <Text style={styles.notificationText}>🔔</Text>
                 {(notifications.length > 0 || pendingRequests.length > 0) && (
@@ -550,45 +807,28 @@ export default function FriendTrackingSystem() {
                   </View>
                 )}
               </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.authCheckButton}
+                onPress={() => setAuthCheckVisible(true)}
+              >
+                <Text style={styles.authCheckButtonText}>🔐</Text>
+              </TouchableOpacity>
             </View>
           </Animated.View>
 
-          {/* Search Input */}
+          {/* Search Bar */}
           <View style={styles.searchContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
               style={styles.searchInput}
               placeholder="Search friends..."
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity 
-                style={styles.clearButton}
-                onPress={() => setSearchQuery("")}
-              >
-                <Text style={styles.clearButtonText}>✕</Text>
-              </TouchableOpacity>
-            )}
           </View>
 
           {/* Content */}
-          <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-            {/* Pending Requests */}
-            {pendingRequests.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Pending Requests</Text>
-                <FlatList
-                  data={pendingRequests}
-                  renderItem={renderPendingRequest}
-                  keyExtractor={(item) => item.id.toString()}
-                  scrollEnabled={false}
-                />
-              </View>
-            )}
-
-            {/* Friends List */}
+          <View style={styles.contentContainer}>
             {loading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#3B82F6" />
@@ -615,7 +855,7 @@ export default function FriendTrackingSystem() {
             ) : (
               renderPlaceholder()
             )}
-          </ScrollView>
+          </View>
 
           {/* Action Buttons */}
           <View style={styles.actionButtonsContainer}>
@@ -628,11 +868,11 @@ export default function FriendTrackingSystem() {
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={styles.emergencyBtn} 
-              onPress={handleEmergency}
+              style={styles.createCircleButton} 
+              onPress={() => setCircleManagerVisible(true)}
             >
-              <Text style={styles.emergencyIcon}>🚨</Text>
-              <Text style={styles.emergencyText}>Emergency</Text>
+              <Text style={styles.createCircleIcon}>+</Text>
+              <Text style={styles.createCircleText}>Create Circle</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -692,7 +932,7 @@ export default function FriendTrackingSystem() {
                 style={styles.modalClose}
                 onPress={() => setModalVisible(false)}
               >
-                <Text style={styles.modalCloseText}>Close</Text>
+                <Text style={styles.modalCloseText}>Close Menu</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -781,6 +1021,7 @@ export default function FriendTrackingSystem() {
           </View>
         </Modal>
         
+        {/* Remove Friend Modal */}
         <Modal
           animationType="fade"
           transparent
@@ -811,7 +1052,7 @@ export default function FriendTrackingSystem() {
                   
                   <TouchableOpacity
                     style={styles.removeModalConfirmButton}
-                    onPress={() => removeFriend(selectedFriendToRemove?.id)}
+                    onPress={() => handleRemoveFriend(selectedFriendToRemove?.id)}
                   >
                     <Text style={styles.removeModalConfirmText}>Remove</Text>
                   </TouchableOpacity>
@@ -820,10 +1061,25 @@ export default function FriendTrackingSystem() {
             </View>
           </View>
         </Modal>
+
+        {/* Circle Manager Modal */}
+        <LocalCircleManager
+          visible={circleManagerVisible}
+          onClose={() => setCircleManagerVisible(false)}
+          friends={currentFriends}
+          onCircleCreated={handleCircleCreated}
+        />
+
+        {/* Auth Check Modal */}
+        <AuthCheck
+          visible={authCheckVisible}
+          onClose={() => setAuthCheckVisible(false)}
+        />
       </SafeAreaView>
     </>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -860,29 +1116,25 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     position: 'relative',
-    marginBottom: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   headerBackground: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 120,
+    bottom: 0,
     backgroundColor: '#FFFFFF',
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 25,
+    justifyContent: 'space-between',
   },
   menuButton: {
     width: 44,
@@ -891,31 +1143,57 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    marginRight: 12,
   },
   menuText: {
-    fontSize: 20,
-    color: '#1E293B',
+    fontSize: 18,
+    color: '#64748B',
     fontWeight: '600',
   },
   titleContainer: {
     flex: 1,
+    marginLeft: 8,
   },
   header: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#1E293B',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
     color: '#64748B',
     fontWeight: '500',
+  },
+  dataToggleButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    position: 'relative',
+  },
+  dataToggleText: {
+    fontSize: 20,
+  },
+  loadingIndicator: {
+    position: 'absolute',
+    bottom: -8,
+    right: -8,
+  },
+  circleButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  circleButtonText: {
+    fontSize: 20,
   },
   notificationButton: {
     width: 44,
@@ -946,19 +1224,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
-    height: 50,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   searchIcon: {
     fontSize: 18,
@@ -966,10 +1236,14 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   searchInput: {
-    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 16,
     color: '#1E293B',
-    fontWeight: '500',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   clearButton: {
     width: 24,
@@ -988,12 +1262,52 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
+  apiStatusCard: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3B82F6',
+  },
+  apiStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  apiStatusIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  apiStatusTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E40AF',
+    flex: 1,
+  },
+  apiStatusText: {
+    fontSize: 14,
+    color: '#1E40AF',
+    marginBottom: 12,
+  },
+  refreshButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  refreshButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   section: {
     marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#1E293B',
     marginBottom: 12,
   },
@@ -1045,9 +1359,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     paddingVertical: 60,
   },
-  placeholderIcon: {
-    fontSize: 64,
+  placeholderIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E0E7FF',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 20,
+  },
+  placeholderIcon: {
+    fontSize: 48,
   },
   placeholderTitle: {
     fontSize: 20,
@@ -1061,21 +1383,36 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 24,
+    marginBottom: 24,
+  },
+  placeholderButton: {
+    backgroundColor: '#3B82F6',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  placeholderButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    marginBottom: 16,
+    borderRadius: 16,
+    marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   cardContent: {
     flexDirection: 'row',
-    padding: 20,
-    alignItems: 'flex-start',
+    padding: 16,
+    alignItems: 'center',
   },
   avatarContainer: {
     position: 'relative',
@@ -1088,13 +1425,13 @@ const styles = StyleSheet.create({
   },
   avatarBorder: {
     position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: '#10B981',
     top: -2,
     left: -2,
+    right: -2,
+    bottom: -2,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
   },
   info: {
     flex: 1,
@@ -1105,10 +1442,10 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   name: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#1E293B',
-    marginRight: 8,
+    flex: 1,
   },
   statusContainer: {
     position: 'relative',
@@ -1135,7 +1472,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 12,
+    marginLeft: 8,
   },
   onlineBadgeText: {
     color: '#FFFFFF',
@@ -1178,10 +1516,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginRight: 6,
   },
-  contactText: {
-    fontSize: 12,
-    color: '#94A3B8',
-    fontWeight: '400',
+  contact: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '500',
   },
   timeContainer: {
     alignItems: 'flex-end',
@@ -1200,7 +1538,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  removeButtonText: {
+  moreButtonText: {
     fontSize: 16,
   },
   pendingCard: {
@@ -1248,9 +1586,6 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontWeight: '500',
   },
-  pendingActions: {
-    alignItems: 'center',
-  },
   pendingStatus: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1262,29 +1597,42 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     fontWeight: '500',
   },
-  cancelRequestButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#FEE2E2',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelRequestText: {
-    fontSize: 14,
-    color: '#DC2626',
-    fontWeight: 'bold',
-  },
   actionButtonsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 12,
+    paddingVertical: 20,
+    gap: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
   },
   addFriendButton: {
     flex: 1,
     backgroundColor: '#38BDF8',
-    paddingVertical: 16,
+    paddingVertical: 18,
+    borderRadius: 16,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    shadowColor: '#38BDF8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  addFriendIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  addFriendText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  createCircleButton: {
+    flex: 1,
+    backgroundColor: '#3B82F6',
+    paddingVertical: 18,
     borderRadius: 16,
     alignItems: 'center',
     flexDirection: 'row',
@@ -1295,33 +1643,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-  addFriendIcon: {
-    fontSize: 20,
-    marginRight: 8,
+  createCircleIcon: {
+    fontSize: 22,
+    marginRight: 10,
   },
-  addFriendText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  emergencyBtn: {
-    backgroundColor: '#EF4444',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    alignItems: 'center',
-    flexDirection: 'row',
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  emergencyIcon: {
-    fontSize: 20,
-    marginRight: 8,
-  },
-  emergencyText: {
+  createCircleText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
@@ -1403,7 +1729,7 @@ const styles = StyleSheet.create({
   modalCloseText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1E293B',
+    color: '#FF0000',
   },
   keyboardAvoidingView: {
     justifyContent: 'flex-end',
@@ -1502,71 +1828,87 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
-
   removeModalContainer: {
-  flex: 1,
-  alignItems: 'center',
-  justifyContent: 'center',
-  paddingHorizontal: 40,
-},
-removeModalContent: {
-  backgroundColor: '#FFFFFF',
-  borderRadius: 20,
-  padding: 24,
-  alignItems: 'center',
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.15,
-  shadowRadius: 12,
-  elevation: 8,
-  width: '100%',
-  maxWidth: 320,
-},
-removeModalIcon: {
-  fontSize: 48,
-  marginBottom: 16,
-},
-removeModalTitle: {
-  fontSize: 20,
-  fontWeight: '700',
-  color: '#1E293B',
-  marginBottom: 12,
-  textAlign: 'center',
-},
-removeModalMessage: {
-  fontSize: 16,
-  color: '#64748B',
-  textAlign: 'center',
-  lineHeight: 22,
-  marginBottom: 24,
-},
-removeModalActions: {
-  flexDirection: 'row',
-  gap: 12,
-  width: '100%',
-},
-removeModalCancelButton: {
-  flex: 1,
-  backgroundColor: '#F1F5F9',
-  paddingVertical: 14,
-  borderRadius: 12,
-  alignItems: 'center',
-},
-removeModalCancelText: {
-  fontSize: 16,
-  fontWeight: '600',
-  color: '#64748B',
-},
-removeModalConfirmButton: {
-  flex: 1,
-  backgroundColor: '#EF4444',
-  paddingVertical: 14,
-  borderRadius: 12,
-  alignItems: 'center',
-},
-removeModalConfirmText: {
-  fontSize: 16,
-  fontWeight: '600',
-  color: '#FFFFFF',
-},
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  removeModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    width: '100%',
+    maxWidth: 320,
+  },
+  removeModalIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  removeModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  removeModalMessage: {
+    fontSize: 16,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  removeModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  removeModalCancelButton: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  removeModalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  removeModalConfirmButton: {
+    flex: 1,
+    backgroundColor: '#EF4444',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  removeModalConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  authCheckButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  authCheckButtonText: {
+    fontSize: 20,
+  },
+  contentContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
 });

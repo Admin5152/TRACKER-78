@@ -6,6 +6,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { account } from '../lib/appwriteConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -48,13 +49,40 @@ export default function SettingsPage() {
           style: "destructive", 
           onPress: async () => {
             try {
+              // Clear Appwrite session
               await account.deleteSession('current');
+              
+              // Clear stored data
+              await AsyncStorage.removeItem('sessionId');
+              await AsyncStorage.removeItem('currentUser');
+              await AsyncStorage.removeItem('authToken');
+              
+              // Clear any other stored data
+              await AsyncStorage.removeItem('friends');
+              await AsyncStorage.removeItem('pendingRequests');
+              await AsyncStorage.removeItem('notifications');
+              
+              console.log('Logout successful - all data cleared');
+              
               navigation.reset({
                 index: 0,
                 routes: [{ name: 'Login' }],
               });
             } catch (error) {
-              Alert.alert('Logout Failed', error.message || 'An error occurred while logging out.');
+              console.error('Logout error:', error);
+              // Even if there's an error, clear local data and redirect
+              try {
+                await AsyncStorage.removeItem('sessionId');
+                await AsyncStorage.removeItem('currentUser');
+                await AsyncStorage.removeItem('authToken');
+              } catch (clearError) {
+                console.error('Error clearing local data:', clearError);
+              }
+              
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
             }
           }
         }
@@ -201,14 +229,14 @@ const handleEmailSupport = () => {
               </View>
             </View>
 
-            {/* Coming Soon Section */}
+            {/* Coming Soon Section
             <View style={styles.comingSoonCard}>
               <View style={styles.comingSoonContent}>
                 <Ionicons name="construct-outline" size={wp(6)} color="#64748B" />
                 <Text style={styles.comingSoonText}>More Settings Coming Soon...</Text>
                 <Text style={styles.comingSoonSubtext}>We're working on exciting new features</Text>
               </View>
-            </View>
+            </View> */}
 
             {/* Logout Button */}
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>

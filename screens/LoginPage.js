@@ -12,6 +12,7 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { account } from '../lib/appwriteConfig'; // ✅ Adjust if needed
 
 const { width, height } = Dimensions.get('window');
@@ -33,24 +34,28 @@ export default function LoginPage({ navigation }) {
   const loadingAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-  (async () => {
-    try {
-      await fetch(
-        'https://fra.cloud.appwrite.io/v1/account/sessions/current',
-        {
-          method: 'DELETE',
-          headers: {
-            'X-Appwrite-Project': '683f5658000ba43c36cd',
-          },
-          credentials: 'include', // important so the cookie is sent
-        }
-      );
-      console.log('Old session cleared');
-    } catch (e) {
-      console.log('No session to clear or network error', e);
-    }
-  })();
-}, []);
+    (async () => {
+      try {
+        // Clear any existing tokens from storage
+        await AsyncStorage.removeItem('authToken');
+        await AsyncStorage.removeItem('sessionId');
+        
+        await fetch(
+          'https://fra.cloud.appwrite.io/v1/account/sessions/current',
+          {
+            method: 'DELETE',
+            headers: {
+              'X-Appwrite-Project': '683f5658000ba43c36cd',
+            },
+            credentials: 'include', // important so the cookie is sent
+          }
+        );
+        console.log('Old session cleared');
+      } catch (e) {
+        console.log('No session to clear or network error', e);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     Animated.sequence([
@@ -88,48 +93,149 @@ export default function LoginPage({ navigation }) {
     }
   }, [isLoading]);
 
-const handleLogin = async () => {
-  if (!email || !password) {
-    Alert.alert('Error', 'Please enter email and password.');
-    return;
-  }
+  // Helper function to store token securely
+  const storeAuthToken = async (token, sessionId) => {
+    try {
+      await AsyncStorage.setItem('authToken', token);
+      await AsyncStorage.setItem('sessionId', sessionId);
+      console.log('Auth token stored successfully');
+    } catch (error) {
+      console.error('Error storing auth token:', error);
+    }
+  };
 
-  if (!email.includes('@')) {
-    Alert.alert('Error', 'Please enter a valid email address.');
-    return;
-  }
+  // Helper function to get stored token
+  const getAuthToken = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      return token;
+    } catch (error) {
+      console.error('Error retrieving auth token:', error);
+      return null;
+    }
+  };
 
-  setIsLoading(true);
-
-  try {
-    const response = await fetch('https://fra.cloud.appwrite.io/v1/account/sessions/email', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Appwrite-Project': '683f5658000ba43c36cd',
-      },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      Alert.alert('Login Failed', data.message || 'Check your credentials');
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter email and password.');
       return;
     }
 
-    Alert.alert('Login Successful', 'Welcome back!');
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'FamilyIntroPage' }],
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    Alert.alert('Error', 'Something went wrong. Please try again.');
-  } finally {
-    setIsLoading(false);
-  }
-};
+    if (!email.includes('@')) {
+      Alert.alert('Error', 'Please enter a valid email address.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Step 1: Create session with Appwrite
+      const response = await fetch('https://fra.cloud.appwrite.io/v1/account/sessions/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Appwrite-Project': '683f5658000ba43c36cd',
+        },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include', // Important for session cookies
+      });
+
+      const sessionData = await response.json();
+
+      if (!response.ok) {
+        Alert.alert('Login Failed', sessionData.message || 'Check your credentials');
+        return;
+      }
+
+      console.log('Login successful, session created:', sessionData);
+
+      // Step 2: Store session ID and user data
+      const sessionId = sessionData.$id;
+      const userId = sessionData.userId;
+      
+      await AsyncStorage.setItem('sessionId', sessionId);
+      
+      // Step 3: Get user details and store them
+      const userResponse = await fetch('https://fra.cloud.appwrite.io/v1/account', {
+        method: 'GET',
+        headers: {
+          'X-Appwrite-Project': '683f5658000ba43c36cd',
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Important for session cookies
+      });
+
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
+        console.log('User data stored:', userData);
+      }
+
+      Alert.alert('Login Successful', 'Welcome back!');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'FamilyIntroPage' }],
+      });
+
+    } catch (error) {
+      console.error('Login error:', error);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Helper function to test authenticated requests
+  const testAuthenticatedRequest = async (token) => {
+    try {
+      // Example: Get current user info to verify token works
+      const userResponse = await fetch('https://fra.cloud.appwrite.io/v1/account', {
+        method: 'GET',
+        headers: {
+          'X-Appwrite-Project': '683f5658000ba43c36cd',
+          'Authorization': `Bearer ${token}`, // Add token to Authorization header
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        console.log('Token verified, user data:', userData);
+        return true;
+      } else {
+        console.log('Token verification failed');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error testing authenticated request:', error);
+      return false;
+    }
+  };
+
+  // Example function for making future backend requests with stored token
+  const makeBackendRequest = async (endpoint, options = {}) => {
+    try {
+      const token = await getAuthToken();
+      
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(endpoint, {
+        ...options,
+        headers: {
+          ...options.headers,
+          'Authorization': `Bearer ${token}`, // Attach token to Authorization header
+          'Content-Type': 'application/json',
+        },
+      });
+
+      return response;
+    } catch (error) {
+      console.error('Backend request error:', error);
+      throw error;
+    }
+  };
 
   const onPressIn = () => {
     Animated.spring(scaleAnim, {
@@ -245,7 +351,7 @@ const handleLogin = async () => {
                     styles.eyeIcon,
                     isLoading && styles.eyeIconDisabled
                   ]}>
-                    {showPassword ? '🙈' : '👁️'}
+                    {showPassword ? '🙈' : '🐵'}
                   </Text>
                 </TouchableOpacity>
               </View>

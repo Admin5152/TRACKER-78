@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { account } from '../lib/appwriteConfig';
 import { ID } from 'appwrite';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SignupPage({ navigation }) {
  // const [name , setName] = useState('');//
@@ -58,27 +59,71 @@ const handleSignup = async () => {
   }
 
   try {
-    const response = await fetch('https://fra.cloud.appwrite.io/v1/account', {
+    // Step 1: Create account
+    const signupResponse = await fetch('https://fra.cloud.appwrite.io/v1/account', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Appwrite-Project': '683f5658000ba43c36cd', // your project ID
+        'X-Appwrite-Project': '683f5658000ba43c36cd',
       },
       body: JSON.stringify({
-        userId: 'unique()', // auto ID generator — Appwrite understands this string
+        userId: 'unique()',
         email: email,
         password: password,
       }),
     });
 
-    const data = await response.json();
+    const signupData = await signupResponse.json();
 
-    if (!response.ok) {
-      Alert.alert('Signup Failed', data.message || 'Something went wrong.');
+    if (!signupResponse.ok) {
+      Alert.alert('Signup Failed', signupData.message || 'Something went wrong.');
       return;
     }
 
-    Alert.alert('Success', 'Account created successfully!');
+    console.log('Account created successfully:', signupData);
+
+    // Step 2: Automatically log in the user
+    const loginResponse = await fetch('https://fra.cloud.appwrite.io/v1/account/sessions/email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Appwrite-Project': '683f5658000ba43c36cd',
+      },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include', // Important for session cookies
+    });
+
+    const loginData = await loginResponse.json();
+
+    if (!loginResponse.ok) {
+      Alert.alert('Account Created', 'Account created successfully! Please log in.');
+      navigation.navigate('LoginPage');
+      return;
+    }
+
+    console.log('Auto-login successful:', loginData);
+
+    // Step 3: Store session and user data
+    const sessionId = loginData.$id;
+    await AsyncStorage.setItem('sessionId', sessionId);
+
+    // Step 4: Get and store user details
+    const userResponse = await fetch('https://fra.cloud.appwrite.io/v1/account', {
+      method: 'GET',
+      headers: {
+        'X-Appwrite-Project': '683f5658000ba43c36cd',
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (userResponse.ok) {
+      const userData = await userResponse.json();
+      await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
+      console.log('User data stored:', userData);
+    }
+
+    Alert.alert('Success', 'Account created and logged in successfully!');
     navigation.reset({
       index: 0,
       routes: [{ name: 'FamilyIntroPage' }],

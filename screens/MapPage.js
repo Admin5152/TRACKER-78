@@ -14,13 +14,16 @@ import {
   StatusBar,
   ScrollView
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
+import { authenticatedFetch, circlesAPI, getCurrentUserId, handleAPIError } from '../utils/api';
+import { useFriends } from '../components/FriendsContext';
 
 const { width, height } = Dimensions.get('window');
 
-// Fixed friends data with proper Accra coordinates
-const FRIENDS_DATA = [
+// Backup/demo friends data - you can keep this for testing
+const DEMO_FRIENDS_DATA = [
   {
     id: 1,
     name: "Alice Johnson",
@@ -32,7 +35,7 @@ const FRIENDS_DATA = [
   },
   {
     id: 2,
-    name: "David Wilson",
+    name: "Friend 4488",
     latitude: 5.6150,
     longitude: -0.1750,
     status: "offline",
@@ -41,7 +44,7 @@ const FRIENDS_DATA = [
   },
   {
     id: 3,
-    name: "Emma Brown",
+    name: "Friend 7673",
     latitude: 5.5920,
     longitude: -0.1920,
     status: "online",
@@ -56,10 +59,108 @@ export default function MapPage({ navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [friendsVisible, setFriendsVisible] = useState(true);
   const [selectedFriend, setSelectedFriend] = useState(null);
+  const [mapType, setMapType] = useState('standard');
+  const [routeCoords, setRouteCoords] = useState([]);
+  const [showRoute, setShowRoute] = useState(false);
+  const { friends, loading: friendsLoading } = useFriends();
+  const [backendMode, setBackendMode] = useState(false); // Default to local mode
+  const [backendFriends, setBackendFriends] = useState([]);
+  const [loadingBackendFriends, setLoadingBackendFriends] = useState(false);
+
+  // Replace with your actual circle ID
+  const CIRCLE_ID = 1;
   
   // Add map reference for controlling zoom
   const mapRef = useRef(null);
 
+  // Load circle members from API
+  const loadCircleMembers = async () => {
+    // setLoadingMembers(true); // This state is removed, so this function is no longer needed
+    try {
+      const response = await authenticatedFetch(
+        `https://api.yourdomain.com/api/circles/${CIRCLE_ID}/locations`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const membersData = await response.json();
+      console.log('Loaded members:', membersData);
+      // setMembers(membersData); // This state is removed
+    } catch (error) {
+      console.error('Error loading circle members:', error);
+      Alert.alert(
+        'Error loading circle', 
+        error.message,
+        [
+          { text: 'Use Demo Data', onPress: () => { /* setUseApiData(false) */ } },
+          { text: 'Retry', onPress: loadCircleMembers },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    } finally {
+      // setLoadingMembers(false); // This state is removed
+    }
+  };
+
+  // Load friends from backend
+  const loadBackendFriends = async () => {
+    setLoadingBackendFriends(true);
+    try {
+      const userId = await getCurrentUserId();
+      if (!userId) {
+        console.log('User not authenticated, using local mode');
+        setBackendMode(false);
+        return;
+      }
+
+      // Get user's circles first
+      const circlesResponse = await circlesAPI.getUserCircles(userId);
+      const circles = circlesResponse.documents || [];
+      
+      // Get friends from all circles
+      const allFriends = [];
+      for (const circle of circles) {
+        const membersResponse = await circlesAPI.getCircleMembers(circle.$id);
+        const members = membersResponse.documents || [];
+        
+        // Transform members to friend format
+        const circleFriends = members.map(member => ({
+          id: member.$id,
+          name: member.name || `Friend ${member.$id.slice(-4)}`,
+          latitude: member.latitude || 5.6037 + (Math.random() - 0.5) * 0.02,
+          longitude: member.longitude || -0.1870 + (Math.random() - 0.5) * 0.02,
+          status: 'online',
+          lastSeen: 'Just now',
+          avatar: '👤',
+          contact: member.contact || 'No contact',
+          activity: 'Available',
+          statusColor: '#10B981',
+          time: 'Just now',
+          isOnline: true,
+        }));
+        
+        allFriends.push(...circleFriends);
+      }
+      
+      setBackendFriends(allFriends);
+      setBackendMode(true);
+    } catch (error) {
+      console.error('Error loading backend friends:', error);
+      setBackendMode(false);
+    } finally {
+      setLoadingBackendFriends(false);
+    }
+  };
+
+  // Load backend friends when component mounts
+  useEffect(() => {
+    // Disable automatic backend loading to prevent errors
+    // loadBackendFriends();
+  }, []);
+
+  // Initialize location tracking
   useEffect(() => {
     let subscription;
 
@@ -90,6 +191,93 @@ export default function MapPage({ navigation }) {
     };
   }, []);
 
+  // Load circle members on component mount
+  useEffect(() => {
+    // if (useApiData) { // This state is removed
+    //   loadCircleMembers();
+    // }
+  }, []); // Removed useApiData dependency
+
+  // Handle friend marker press
+  const handleFriendMarkerPress = async (friend) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setSelectedFriend(friend);
+    // Center map on friend
+    if (mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: friend.latitude,
+        longitude: friend.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 1000);
+    }
+    // Show Alert with option to show route
+    Alert.alert(
+      `${friend.name}`,
+      `Lat: ${friend.latitude?.toFixed(4)}, Lng: ${friend.longitude?.toFixed(4)}`,
+      [
+        { text: 'Close', style: 'cancel' },
+        { text: 'Show Route', onPress: () => handleShowRoute(friend) },
+      ]
+    );
+  };
+
+  const handleShowRoute = async (friend) => {
+    setShowRoute(true);
+    // Use Google Directions API if you have an API key, else draw a straight line
+    const apiKey = null; // <-- Put your Google Directions API key here if you have one
+    if (apiKey) {
+      try {
+        const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${location.latitude},${location.longitude}&destination=${friend.latitude},${friend.longitude}&mode=walking&key=${apiKey}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.routes && data.routes.length > 0) {
+          const points = decodePolyline(data.routes[0].overview_polyline.points);
+          setRouteCoords(points);
+        } else {
+          setRouteCoords([{ latitude: location.latitude, longitude: location.longitude }, { latitude: friend.latitude, longitude: friend.longitude }]);
+        }
+      } catch (e) {
+        setRouteCoords([{ latitude: location.latitude, longitude: location.longitude }, { latitude: friend.latitude, longitude: friend.longitude }]);
+      }
+    } else {
+      // No API key: draw straight line
+      setRouteCoords([{ latitude: location.latitude, longitude: location.longitude }, { latitude: friend.latitude, longitude: friend.longitude }]);
+    }
+  };
+
+  // Polyline decoder for Google Directions API
+  function decodePolyline(encoded) {
+    let points = [];
+    let index = 0, len = encoded.length;
+    let lat = 0, lng = 0;
+    while (index < len) {
+      let b, shift = 0, result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+      points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+    }
+    return points;
+  }
+
+  const toggleMapType = () => {
+    setMapType(prev => prev === 'standard' ? 'hybrid' : 'standard');
+  };
+
   const handleMenuPress = (option) => {
     setModalVisible(false);
     switch (option) {
@@ -112,18 +300,6 @@ export default function MapPage({ navigation }) {
 
   const handleEmergency = () => {
     Alert.alert("Emergency", "Emergency services have been contacted!");
-  };
-
-  const handleFriendMarkerPress = (friend) => {
-    setSelectedFriend(friend);
-    Alert.alert(
-      `${friend.name}`,
-      `Status: ${friend.status}\nLast seen: ${friend.lastSeen}`,
-      [
-        { text: "Close", style: "cancel" },
-        { text: "Message", onPress: () => Alert.alert("Message", `Messaging ${friend.name}`) }
-      ]
-    );
   };
 
   const toggleFriendsVisibility = () => {
@@ -150,6 +326,31 @@ export default function MapPage({ navigation }) {
       default: return '#6B7280';
     }
   };
+
+  // Get friends data based on current mode
+  // const getFriendsData = () => { // This function is removed
+  //   if (useApiData && members.length > 0) {
+  //     return members.map(member => ({
+  //       id: member.appwriteId,
+  //       name: member.username,
+  //       latitude: member.latitude,
+  //       longitude: member.longitude,
+  //       status: member.statusMessage || 'online',
+  //       lastSeen: new Date(member.timestamp).toLocaleTimeString(),
+  //       avatar: "👤" // Default avatar for API users
+  //     }));
+  //   }
+  //   return DEMO_FRIENDS_DATA;
+  // };
+
+  const getCurrentFriendsData = () => {
+    if (backendMode && backendFriends.length > 0) {
+      return backendFriends;
+    }
+    return friends;
+  };
+
+  const friendsData = getCurrentFriendsData();
 
   if (loading || !location) {
     return (
@@ -178,8 +379,19 @@ export default function MapPage({ navigation }) {
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
             <Text style={styles.header}>Map View</Text>
-            <Text style={styles.headerSubtext}>Your location & friends</Text>
+            <Text style={styles.headerSubtext}>
+              Local mode • {friendsData.length} friends
+            </Text>
           </View>
+          {/* Toggle between API and demo data */}
+          {/* <TouchableOpacity 
+            style={styles.friendsToggle} 
+            onPress={() => setUseApiData(!useApiData)}
+          >
+            <Text style={styles.friendsToggleText}>
+              {useApiData ? '📡' : '🎭'}
+            </Text>
+          </TouchableOpacity> */}
         </View>
       </View>
 
@@ -188,6 +400,7 @@ export default function MapPage({ navigation }) {
         <MapView
           ref={mapRef}
           style={styles.map}
+          mapType={mapType}
           region={{
             latitude: location.latitude,
             longitude: location.longitude,
@@ -210,7 +423,7 @@ export default function MapPage({ navigation }) {
           />
           
           {/* Friends markers */}
-          {friendsVisible && FRIENDS_DATA.map((friend) => (
+          {friendsVisible && friendsData.map((friend) => (
             <Marker
               key={friend.id}
               coordinate={{
@@ -218,26 +431,45 @@ export default function MapPage({ navigation }) {
                 longitude: friend.longitude,
               }}
               title={friend.name}
-              description={`${friend.status} • ${friend.lastSeen}`}
+              description={`Lat: ${friend.latitude?.toFixed(4)}, Lng: ${friend.longitude?.toFixed(4)}`}
               pinColor={getMarkerColor(friend.status)}
               onPress={() => handleFriendMarkerPress(friend)}
             />
           ))}
+          {/* Route polyline */}
+          {showRoute && routeCoords.length > 1 && (
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor="#2563eb"
+              strokeWidth={4}
+            />
+          )}
         </MapView>
         
         {/* Map overlay controls */}
         <View style={styles.mapControls}>
           <TouchableOpacity style={styles.controlButton} onPress={toggleFriendsVisibility}>
             <Text style={styles.controlButtonText}>
-              {friendsVisible ? '👥' : '👁️'}
+              {friendsVisible ? '👥' : '👤'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.controlButton} onPress={zoomToMyLocation}>
             <Text style={styles.controlButtonText}>📍</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlButtonText}>🧭</Text>
+          <TouchableOpacity style={styles.controlButton} onPress={toggleMapType}>
+            <Text style={styles.controlButtonText}>🗺</Text>
           </TouchableOpacity>
+          {/* {useApiData && ( // This state is removed
+            <TouchableOpacity 
+              style={[styles.controlButton, loadingMembers && { opacity: 0.6 }]} 
+              onPress={loadCircleMembers}
+              disabled={loadingMembers}
+            >
+              <Text style={styles.controlButtonText}>
+                {loadingMembers ? '⟳' : '🔄'}
+              </Text>
+            </TouchableOpacity>
+          )} */}
         </View>
       </View>
 
@@ -255,7 +487,11 @@ export default function MapPage({ navigation }) {
         </Text>
         <View style={styles.friendsCounter}>
           <Text style={styles.friendsCounterText}>
-            {friendsVisible ? `${FRIENDS_DATA.length} friends visible` : 'Friends hidden'}
+            {friendsVisible 
+              ? `${friendsData.length} friends visible` 
+              : 'Friends hidden'
+            }
+            {friendsLoading && ' • Loading...'}
           </Text>
         </View>
       </View>
@@ -265,7 +501,7 @@ export default function MapPage({ navigation }) {
         <View style={styles.friendsCard}>
           <Text style={styles.friendsCardTitle}>Friends Nearby</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {FRIENDS_DATA.map((friend) => (
+            {friendsData.map((friend) => (
               <TouchableOpacity
                 key={friend.id}
                 style={styles.friendItem}
