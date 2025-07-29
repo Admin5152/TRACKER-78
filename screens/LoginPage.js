@@ -137,7 +137,6 @@ export default function LoginPage({ navigation }) {
           'X-Appwrite-Project': '683f5658000ba43c36cd',
         },
         body: JSON.stringify({ email, password }),
-        credentials: 'include', // Important for session cookies
       });
 
       const sessionData = await response.json();
@@ -149,27 +148,30 @@ export default function LoginPage({ navigation }) {
 
       console.log('Login successful, session created:', sessionData);
 
-      // Step 2: Store session ID and user data
+      // Step 2: Extract token from the response
+      // The session response contains various fields including $id, userId, etc.
       const sessionId = sessionData.$id;
       const userId = sessionData.userId;
       
-      await AsyncStorage.setItem('sessionId', sessionId);
+      // For Appwrite, the session token is typically the session ID itself
+      // or you might need to get it from cookies/headers
+      let authToken = sessionId;
       
-      // Step 3: Get user details and store them
-      const userResponse = await fetch('https://fra.cloud.appwrite.io/v1/account', {
-        method: 'GET',
-        headers: {
-          'X-Appwrite-Project': '683f5658000ba43c36cd',
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Important for session cookies
-      });
-
-      if (userResponse.ok) {
-        const userData = await userResponse.json();
-        await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
-        console.log('User data stored:', userData);
+      // Alternative: If token is in response headers
+      const tokenFromHeader = response.headers.get('set-cookie');
+      if (tokenFromHeader) {
+        // Extract session token from cookie if needed
+        const sessionMatch = tokenFromHeader.match(/a_session_[^=]+=([^;]+)/);
+        if (sessionMatch) {
+          authToken = sessionMatch[1];
+        }
       }
+
+      // Step 3: Store the token for future backend requests
+      await storeAuthToken(authToken, sessionId);
+
+      // Optional: Test the token by making an authenticated request
+      await testAuthenticatedRequest(authToken);
 
       Alert.alert('Login Successful', 'Welcome back!');
       navigation.reset({

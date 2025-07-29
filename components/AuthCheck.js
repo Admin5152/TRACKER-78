@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isAuthenticated, getCurrentUserId } from '../utils/api';
+import { account } from '../lib/appwriteConfig';
 
 export default function AuthCheck({ visible, onClose }) {
   const [authStatus, setAuthStatus] = useState('Checking...');

@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { account } from '../lib/appwriteConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authAPI } from '../utils/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -26,10 +26,12 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchUserData = async () => {
       try {
-        const response = await account.get();
-        setUser(response);
+        const userData = await AsyncStorage.getItem('currentUser');
+        if (userData) {
+          setUser(JSON.parse(userData));
+        }
       } catch (error) {
-        Alert.alert('Error', error.message || 'An error occurred while fetching user data.');
+        console.error('Error fetching user data:', error);
       } finally {
         setLoading(false);
       }
@@ -49,18 +51,14 @@ export default function SettingsPage() {
           style: "destructive", 
           onPress: async () => {
             try {
-              // Clear Appwrite session
-              await account.deleteSession('current');
-              
-              // Clear stored data
-              await AsyncStorage.removeItem('sessionId');
-              await AsyncStorage.removeItem('currentUser');
-              await AsyncStorage.removeItem('authToken');
+              // Use the new authentication API
+              await authAPI.logout();
               
               // Clear any other stored data
               await AsyncStorage.removeItem('friends');
               await AsyncStorage.removeItem('pendingRequests');
               await AsyncStorage.removeItem('notifications');
+              await AsyncStorage.removeItem('localCircles');
               
               console.log('Logout successful - all data cleared');
               
@@ -72,9 +70,12 @@ export default function SettingsPage() {
               console.error('Logout error:', error);
               // Even if there's an error, clear local data and redirect
               try {
-                await AsyncStorage.removeItem('sessionId');
-                await AsyncStorage.removeItem('currentUser');
                 await AsyncStorage.removeItem('authToken');
+                await AsyncStorage.removeItem('currentUser');
+                await AsyncStorage.removeItem('friends');
+                await AsyncStorage.removeItem('pendingRequests');
+                await AsyncStorage.removeItem('notifications');
+                await AsyncStorage.removeItem('localCircles');
               } catch (clearError) {
                 console.error('Error clearing local data:', clearError);
               }

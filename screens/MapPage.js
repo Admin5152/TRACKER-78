@@ -17,7 +17,14 @@ import {
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
-import { authenticatedFetch, circlesAPI, getCurrentUserId, handleAPIError } from '../utils/api';
+import { 
+  authenticatedFetch, 
+  circlesAPI, 
+  getCurrentUserId, 
+  handleAPIError,
+  locationAPI,
+  locationSharingAPI
+} from '../utils/api';
 import { useFriends } from '../components/FriendsContext';
 
 const { width, height } = Dimensions.get('window');
@@ -66,12 +73,46 @@ export default function MapPage({ navigation }) {
   const [backendMode, setBackendMode] = useState(false); // Default to local mode
   const [backendFriends, setBackendFriends] = useState([]);
   const [loadingBackendFriends, setLoadingBackendFriends] = useState(false);
+  const [realTimeFriends, setRealTimeFriends] = useState([]);
+  const [loadingRealTimeData, setLoadingRealTimeData] = useState(false);
 
   // Replace with your actual circle ID
   const CIRCLE_ID = 1;
   
   // Add map reference for controlling zoom
   const mapRef = useRef(null);
+
+  // Load real-time friends location data
+  const loadRealTimeFriends = async () => {
+    setLoadingRealTimeData(true);
+    try {
+      const friendsData = await locationAPI.getFriendsLocations();
+      setRealTimeFriends(friendsData);
+    } catch (error) {
+      console.error('Error loading real-time friends:', error);
+      // Fallback to local friends if API fails
+      setRealTimeFriends(friends);
+    } finally {
+      setLoadingRealTimeData(false);
+    }
+  };
+
+  // Update user's location to backend
+  const updateMyLocation = async (latitude, longitude) => {
+    try {
+      const userId = await getCurrentUserId();
+      if (userId) {
+        await locationAPI.updateLocation({
+          userId,
+          latitude,
+          longitude,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      console.error('Error updating location:', error);
+    }
+  };
 
   // Load circle members from API
   const loadCircleMembers = async () => {
@@ -180,6 +221,8 @@ export default function MapPage({ navigation }) {
         (loc) => {
           setLocation(loc.coords);
           setLoading(false);
+          // Update location to backend
+          updateMyLocation(loc.coords.latitude, loc.coords.longitude);
         }
       );
     })();
@@ -191,12 +234,17 @@ export default function MapPage({ navigation }) {
     };
   }, []);
 
-  // Load circle members on component mount
+  // Load real-time friends data on component mount
   useEffect(() => {
-    // if (useApiData) { // This state is removed
-    //   loadCircleMembers();
-    // }
-  }, []); // Removed useApiData dependency
+    loadRealTimeFriends();
+    
+    // Set up interval to refresh real-time data
+    const interval = setInterval(() => {
+      loadRealTimeFriends();
+    }, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Handle friend marker press
   const handleFriendMarkerPress = async (friend) => {
@@ -344,9 +392,15 @@ export default function MapPage({ navigation }) {
   // };
 
   const getCurrentFriendsData = () => {
+    // Prioritize real-time data
+    if (realTimeFriends.length > 0) {
+      return realTimeFriends;
+    }
+    // Fallback to backend friends
     if (backendMode && backendFriends.length > 0) {
       return backendFriends;
     }
+    // Fallback to local friends
     return friends;
   };
 

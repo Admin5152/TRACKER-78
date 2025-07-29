@@ -30,13 +30,23 @@ import * as Location from 'expo-location';
 import CircleManager from '../components/CircleManager';
 import LocalCircleManager from '../components/LocalCircleManager';
 import AuthCheck from '../components/AuthCheck';
-import { friendsAPI, getCurrentUserId, handleAPIError } from '../utils/api';
+import { 
+  friendsAPI, 
+  getCurrentUserId, 
+  handleAPIError,
+  friendRequestsAPI,
+  locationSharingAPI,
+  locationAPI
+} from '../utils/api';
+import AddFriendModal from '../components/AddFriendModal';
+import FriendRequestsModal from '../components/FriendRequestsModal';
+import QuickRequestPopup from '../components/QuickRequestPopup';
+import { testBackendConnection } from '../utils/testBackend';
 
 const { width, height } = Dimensions.get('window');
 
 export default function FriendTrackingSystem() {
   const [modalVisible, setModalVisible] = useState(false);
-  const [addFriendModalVisible, setAddFriendModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [newFriendContact, setNewFriendContact] = useState("");
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -59,6 +69,11 @@ export default function FriendTrackingSystem() {
   const [backendFriends, setBackendFriends] = useState([]);
   const [loadingBackendFriends, setLoadingBackendFriends] = useState(false);
   const [authCheckVisible, setAuthCheckVisible] = useState(false);
+  const [addFriendModalVisible, setAddFriendModalVisible] = useState(false);
+  const [friendRequestsModalVisible, setFriendRequestsModalVisible] = useState(false);
+  const [quickRequestPopupVisible, setQuickRequestPopupVisible] = useState(false);
+  const [realTimeFriends, setRealTimeFriends] = useState([]);
+  const [loadingRealTimeData, setLoadingRealTimeData] = useState(false);
 
   const navigation = useNavigation();
 
@@ -74,6 +89,93 @@ export default function FriendTrackingSystem() {
   };
 
   const { friends, addFriend, removeFriend, loading: friendsLoading } = useFriends();
+
+  // Load real-time friends data
+  const loadRealTimeFriends = async () => {
+    setLoadingRealTimeData(true);
+    try {
+      const friendsData = await locationAPI.getFriendsLocations();
+      setRealTimeFriends(friendsData);
+    } catch (error) {
+      console.error('Error loading real-time friends:', error);
+      // Fallback to local friends if API fails
+      setRealTimeFriends(friends);
+    } finally {
+      setLoadingRealTimeData(false);
+    }
+  };
+
+  // Enable location sharing for a friend
+  const enableLocationSharing = async (friendId) => {
+    try {
+      await locationSharingAPI.enableLocationSharing(friendId);
+      Alert.alert('Success', 'Location sharing enabled for this friend');
+      loadRealTimeFriends(); // Refresh data
+    } catch (error) {
+      console.error('Error enabling location sharing:', error);
+      Alert.alert('Error', error.message || 'Failed to enable location sharing');
+    }
+  };
+
+  // Disable location sharing for a friend
+  const disableLocationSharing = async (friendId) => {
+    try {
+      await locationSharingAPI.disableLocationSharing(friendId);
+      Alert.alert('Success', 'Location sharing disabled for this friend');
+      loadRealTimeFriends(); // Refresh data
+    } catch (error) {
+      console.error('Error disabling location sharing:', error);
+      Alert.alert('Error', error.message || 'Failed to disable location sharing');
+    }
+  };
+
+  // Test backend connection
+  const testBackend = async () => {
+    try {
+      await testBackendConnection();
+      Alert.alert('Backend Test', 'Check console for results');
+    } catch (error) {
+      console.error('Backend test error:', error);
+      Alert.alert('Error', 'Failed to test backend');
+    }
+  };
+
+  // Quick request handlers
+  const handleQuickAccept = async (requestId) => {
+    try {
+      const result = await friendRequestsAPI.acceptFriendRequest(requestId);
+      
+      // Automatically enable location sharing
+      if (result && result.friendId) {
+        try {
+          await locationSharingAPI.enableLocationSharing(result.friendId);
+          Alert.alert('Success', 'Friend request accepted and location sharing enabled!');
+        } catch (locationError) {
+          console.error('Error enabling location sharing:', locationError);
+          Alert.alert('Success', 'Friend request accepted! Location sharing can be enabled later.');
+        }
+      } else {
+        Alert.alert('Success', 'Friend request accepted!');
+      }
+      
+      loadRealTimeFriends();
+      setQuickRequestPopupVisible(false);
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      Alert.alert('Error', error.message || 'Failed to accept friend request');
+    }
+  };
+
+  const handleQuickReject = async (requestId) => {
+    try {
+      await friendRequestsAPI.rejectFriendRequest(requestId);
+      Alert.alert('Success', 'Friend request rejected');
+      setQuickRequestPopupVisible(false);
+    } catch (error) {
+      console.error('Error rejecting friend request:', error);
+      Alert.alert('Error', error.message || 'Failed to reject friend request');
+    }
+  };
 
   // Load circle members from API
   const loadCircleMembers = async () => {
@@ -286,6 +388,9 @@ export default function FriendTrackingSystem() {
         loadStoredData();
       }
       
+      // Load real-time friends data
+      loadRealTimeFriends();
+      
       // Load API data if enabled
       if (useApiData && isDataLoaded) {
         loadCircleMembers();
@@ -448,11 +553,11 @@ export default function FriendTrackingSystem() {
     }
     const contact = newFriendContact.trim();
     const contactType = getContactType(contact);
-    
+
     const currentFriends = getCurrentFriendsData();
     const alreadyTracking = currentFriends.some(friend => friend.contact === contact);
     const requestPending = pendingRequests.some(req => req.contact === contact);
-    
+
     if (alreadyTracking) {
       Alert.alert('Already Tracking', 'You are already tracking this person!');
       return;
@@ -461,7 +566,7 @@ export default function FriendTrackingSystem() {
       Alert.alert('Request Pending', 'Request already sent to this contact!');
       return;
     }
-    
+
     setRequestLoading(true);
     try {
       await simulateSendRequest(contact, contactType);
@@ -720,7 +825,7 @@ export default function FriendTrackingSystem() {
   const renderPlaceholder = () => (
     <View style={styles.placeholderContainer}>
       <View style={styles.placeholderIconContainer}>
-        <Text style={styles.placeholderIcon}>👥</Text>
+      <Text style={styles.placeholderIcon}>👥</Text>
       </View>
       <Text style={styles.placeholderTitle}>Start Tracking Friends</Text>
       <Text style={styles.placeholderSubtitle}>
@@ -773,7 +878,7 @@ export default function FriendTrackingSystem() {
               <View style={styles.titleContainer}>
                 <Text style={styles.header}>People You Track</Text>
                 <Text style={styles.subtitle}>
-                  {filteredPeople.length} friends • {pendingRequests.length} pending • Local mode
+                  {filteredPeople.length} friends • {pendingRequests.length} requests • Local mode
                 </Text>
               </View>
               {/* <TouchableOpacity 
@@ -797,12 +902,17 @@ export default function FriendTrackingSystem() {
               >
                 <Text style={styles.circleButtonText}>👥</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.notificationButton}>
+              <TouchableOpacity 
+                style={styles.notificationButton}
+                onPress={() => {
+                  setQuickRequestPopupVisible(true);
+                }}
+              >
                 <Text style={styles.notificationText}>🔔</Text>
-                {(notifications.length > 0 || pendingRequests.length > 0) && (
+                {pendingRequests.length > 0 && (
                   <View style={styles.notificationBadge}>
                     <Text style={styles.badgeText}>
-                      {notifications.length + pendingRequests.length}
+                      {pendingRequests.length}
                     </Text>
                   </View>
                 )}
@@ -813,6 +923,12 @@ export default function FriendTrackingSystem() {
               >
                 <Text style={styles.authCheckButtonText}>🔐</Text>
               </TouchableOpacity>
+              {/* <TouchableOpacity 
+                style={styles.testBackendButton}
+                onPress={testBackend}
+              >
+                <Text style={styles.testBackendButtonText}>🧪</Text>
+              </TouchableOpacity> */}
             </View>
           </Animated.View>
 
@@ -1068,6 +1184,36 @@ export default function FriendTrackingSystem() {
           onClose={() => setCircleManagerVisible(false)}
           friends={currentFriends}
           onCircleCreated={handleCircleCreated}
+        />
+
+        {/* Add Friend Modal */}
+        <AddFriendModal
+          visible={addFriendModalVisible}
+          onClose={() => setAddFriendModalVisible(false)}
+          onFriendAdded={() => {
+            loadRealTimeFriends();
+            setAddFriendModalVisible(false);
+          }}
+        />
+
+        {/* Quick Request Popup */}
+        <QuickRequestPopup
+          visible={quickRequestPopupVisible}
+          onClose={() => setQuickRequestPopupVisible(false)}
+          requests={pendingRequests}
+          onAccept={handleQuickAccept}
+          onReject={handleQuickReject}
+          processingRequest={null}
+        />
+
+        {/* Friend Requests Modal */}
+        <FriendRequestsModal
+          visible={friendRequestsModalVisible}
+          onClose={() => setFriendRequestsModalVisible(false)}
+          onRequestsUpdated={() => {
+            loadRealTimeFriends();
+            setFriendRequestsModalVisible(false);
+          }}
         />
 
         {/* Auth Check Modal */}
@@ -1654,6 +1800,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1912,6 +2059,19 @@ const styles = StyleSheet.create({
   },
   authCheckButtonText: {
     fontSize: 20,
+  },
+  testBackendButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: '#FF6B35',
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  testBackendButtonText: {
+    fontSize: 20,
+    color: '#FFFFFF',
   },
   contentContainer: {
     flex: 1,
