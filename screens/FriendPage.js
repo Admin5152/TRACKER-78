@@ -520,7 +520,7 @@ export default function FriendTrackingSystem() {
       }
     } else {
       removeFriend(friendId);
-      addNotification('Friend removed successfully', 'success');
+      // addNotification('Friend removed successfully', 'success');
     }
     setRemoveModalVisible(false);
     setSelectedFriendToRemove(null);
@@ -1233,32 +1233,43 @@ const styles = StyleSheet.create({
   },
   notificationsOverlay: {
     position: 'absolute',
-    top: 100,
-    right: 20,
+    top: 80,
+    right: 10,
     zIndex: 1000,
-    width: width * 0.8,
+    width: '90%',
+    maxWidth: 340,
+    alignItems: 'flex-end',
   },
   notificationsList: {
-    maxHeight: 300,
+    maxHeight: 220,
+    width: '100%',
   },
   notificationItem: {
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    marginBottom: 6,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.07,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    minWidth: 180,
+    maxWidth: 320,
+    alignSelf: 'flex-end',
   },
   notificationText: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 2,
+    lineHeight: 17,
   },
   notificationTime: {
-    fontSize: 12,
-    opacity: 0.7,
+    fontSize: 11,
+    opacity: 0.6,
+    alignSelf: 'flex-end',
   },
   headerContainer: {
     position: 'relative',

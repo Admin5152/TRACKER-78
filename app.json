@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "tracker-78",
+    "name": "Tracker78",
     "slug": "snack-11dc6ba9-23fd-4658-8959-a846c3f452b7",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,7 +8,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -20,10 +20,16 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.scam.snack11dc6ba923fd46588959a846c3f452b7"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a94a1882-01bf-4ad5-a1fc-d14c2d0bbb90"
+      }
     }
   }
 }

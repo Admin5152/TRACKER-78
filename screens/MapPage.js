@@ -99,6 +99,8 @@ export default function MapPage({ navigation }) {
 
   // Update user's location to backend
   const updateMyLocation = async (latitude, longitude) => {
+    // Skip network request in local mode
+    if (!backendMode) return;
     try {
       const userId = await getCurrentUserId();
       if (userId) {
