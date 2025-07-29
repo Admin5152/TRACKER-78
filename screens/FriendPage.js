@@ -1028,7 +1028,7 @@ export default function FriendTrackingSystem() {
                 ))}
                 
                 {/* Debug option to clear all data - remove in production */}
-                {__DEV__ && (
+                {/* {__DEV__ && (
                   <Pressable 
                     style={[styles.modalItem, { backgroundColor: '#FEE2E2' }]} 
                     onPress={clearAllData}
@@ -1041,7 +1041,7 @@ export default function FriendTrackingSystem() {
                       <Text style={styles.modalItemSubtext}>Reset all stored data (Debug only)</Text>
                     </View>
                   </Pressable>
-                )}
+                )} */}
               </View>
               
               <TouchableOpacity 
