@@ -436,7 +436,7 @@ export default function MapPage({ navigation }) {
           <View style={styles.headerTextContainer}>
             <Text style={styles.header}>Map View</Text>
             <Text style={styles.headerSubtext}>
-              Local mode • {friendsData.length} friends
+              Offline mode • {friendsData.length} friends
             </Text>
           </View>
           {/* Toggle between API and demo data */}

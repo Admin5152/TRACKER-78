@@ -22,26 +22,17 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authenticatedFetch } from '../utils/api'; // Ensure this path is correct
 import { useIsFocused } from '@react-navigation/native';
-import { account } from '../lib/appwriteConfig'; // Update path if needed
 import { useFriends, randomNearbyCoords } from '../components/FriendsContext';
 import * as Location from 'expo-location';
-import CircleManager from '../components/CircleManager';
 import LocalCircleManager from '../components/LocalCircleManager';
 import AuthCheck from '../components/AuthCheck';
 import { 
-  friendsAPI, 
-  getCurrentUserId, 
-  handleAPIError,
-  friendRequestsAPI,
-  locationSharingAPI,
-  locationAPI
+  getCurrentUserId
 } from '../utils/api';
 import AddFriendModal from '../components/AddFriendModal';
 import FriendRequestsModal from '../components/FriendRequestsModal';
 import QuickRequestPopup from '../components/QuickRequestPopup';
-import { testBackendConnection } from '../utils/testBackend';
 
 const { width, height } = Dimensions.get('window');
 
@@ -61,7 +52,7 @@ export default function FriendTrackingSystem() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   
   // New states for API integration
-  const [useApiData, setUseApiData] = useState(true);
+  const [useApiData, setUseApiData] = useState(false); // Disabled API data
   const [loadingApiData, setLoadingApiData] = useState(false);
   const [circleMembers, setCircleMembers] = useState([]);
   const [circleManagerVisible, setCircleManagerVisible] = useState(false);
@@ -92,203 +83,64 @@ export default function FriendTrackingSystem() {
 
   // Load real-time friends data
   const loadRealTimeFriends = async () => {
-    setLoadingRealTimeData(true);
-    try {
-      const friendsData = await locationAPI.getFriendsLocations();
-      setRealTimeFriends(friendsData);
-    } catch (error) {
-      console.error('Error loading real-time friends:', error);
-      // Fallback to local friends if API fails
-      setRealTimeFriends(friends);
-    } finally {
-      setLoadingRealTimeData(false);
-    }
+    // Skip API calls in offline mode
+    setRealTimeFriends(friends);
+    setLoadingRealTimeData(false);
   };
 
   // Enable location sharing for a friend
   const enableLocationSharing = async (friendId) => {
-    try {
-      await locationSharingAPI.enableLocationSharing(friendId);
-      Alert.alert('Success', 'Location sharing enabled for this friend');
-      loadRealTimeFriends(); // Refresh data
-    } catch (error) {
-      console.error('Error enabling location sharing:', error);
-      Alert.alert('Error', error.message || 'Failed to enable location sharing');
-    }
+    // Skip API calls in offline mode
+    Alert.alert('Success', 'Location sharing enabled for this friend');
   };
 
   // Disable location sharing for a friend
   const disableLocationSharing = async (friendId) => {
-    try {
-      await locationSharingAPI.disableLocationSharing(friendId);
-      Alert.alert('Success', 'Location sharing disabled for this friend');
-      loadRealTimeFriends(); // Refresh data
-    } catch (error) {
-      console.error('Error disabling location sharing:', error);
-      Alert.alert('Error', error.message || 'Failed to disable location sharing');
-    }
+    // Skip API calls in offline mode
+    Alert.alert('Success', 'Location sharing disabled for this friend');
   };
 
   // Test backend connection
   const testBackend = async () => {
-    try {
-      await testBackendConnection();
-      Alert.alert('Backend Test', 'Check console for results');
-    } catch (error) {
-      console.error('Backend test error:', error);
-      Alert.alert('Error', 'Failed to test backend');
-    }
+    // Skip backend testing in offline mode
+    Alert.alert('Offline Mode', 'Backend testing disabled in offline mode');
   };
 
   // Quick request handlers
   const handleQuickAccept = async (requestId) => {
-    try {
-      const result = await friendRequestsAPI.acceptFriendRequest(requestId);
-      
-      // Automatically enable location sharing
-      if (result && result.friendId) {
-        try {
-          await locationSharingAPI.enableLocationSharing(result.friendId);
-          Alert.alert('Success', 'Friend request accepted and location sharing enabled!');
-        } catch (locationError) {
-          console.error('Error enabling location sharing:', locationError);
-          Alert.alert('Success', 'Friend request accepted! Location sharing can be enabled later.');
-        }
-      } else {
-        Alert.alert('Success', 'Friend request accepted!');
-      }
-      
-      loadRealTimeFriends();
-      setQuickRequestPopupVisible(false);
-    } catch (error) {
-      console.error('Error accepting friend request:', error);
-      Alert.alert('Error', error.message || 'Failed to accept friend request');
-    }
+    // Skip API calls in offline mode
+    Alert.alert('Success', 'Friend request accepted!');
+    setQuickRequestPopupVisible(false);
   };
 
   const handleQuickReject = async (requestId) => {
-    try {
-      await friendRequestsAPI.rejectFriendRequest(requestId);
-      Alert.alert('Success', 'Friend request rejected');
-      setQuickRequestPopupVisible(false);
-    } catch (error) {
-      console.error('Error rejecting friend request:', error);
-      Alert.alert('Error', error.message || 'Failed to reject friend request');
-    }
+    // Skip API calls in offline mode
+    Alert.alert('Success', 'Friend request rejected');
+    setQuickRequestPopupVisible(false);
   };
 
   // Load circle members from API
   const loadCircleMembers = async () => {
-    if (!useApiData) return;
-    
-    setLoadingApiData(true);
-    try {
-      const response = await authenticatedFetch(
-        `https://api.yourdomain.com/api/circles/${CIRCLE_ID}/locations`
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const membersData = await response.json();
-      console.log('Loaded circle members:', membersData);
-      
-      // Transform API data to match friends format
-      const transformedMembers = membersData.map(member => ({
-        id: member.appwriteId,
-        name: member.username || `User ${member.appwriteId.slice(-4)}`,
-        contact: member.email || member.phone || 'No contact info',
-        location: member.latitude && member.longitude ? 
-          `${member.latitude.toFixed(4)}, ${member.longitude.toFixed(4)}` : 
-          'Location shared',
-        activity: member.statusMessage || 'Available',
-        statusColor: member.isOnline ? "#10B981" : "#6B7280",
-        time: new Date(member.timestamp).toLocaleTimeString(),
-        image: member.profileImage || `https://images.unsplash.com/photo-${500 + Math.floor(Math.random() * 100)}?w=100&h=100&fit=crop&crop=face`,
-        isOnline: member.isOnline || false
-      }));
-      
-      setCircleMembers(transformedMembers);
-      addNotification(`Loaded ${transformedMembers.length} friends from API`, 'success');
-    } catch (error) {
-      console.error('Error loading circle members:', error);
-      addNotification('Failed to load API data, using stored data', 'error');
-      setUseApiData(false); // Fallback to stored data
-    } finally {
-      setLoadingApiData(false);
-    }
+    // Skip API calls in offline mode
+    return;
   };
 
   // Load friends from backend
   const loadBackendFriends = async () => {
-    setLoadingBackendFriends(true);
-    try {
-      const userId = await getCurrentUserId();
-      if (!userId) {
-        console.log('User not authenticated, using local mode');
-        setBackendMode(false);
-        return;
-      }
-
-      const response = await friendsAPI.getUserFriends(userId);
-      const backendFriendsData = response.documents || [];
-      
-      // Transform backend data to match local format
-      const transformedFriends = backendFriendsData.map(friend => ({
-        id: friend.$id,
-        name: friend.name,
-        contact: friend.contact,
-        activity: 'Available',
-        statusColor: '#10B981',
-        time: 'Just now',
-        image: `https://images.unsplash.com/photo-${500 + Math.floor(Math.random() * 100)}?w=100&h=100&fit=crop&crop=face`,
-        isOnline: true,
-        // Add random location for demo (in real app, this would come from location API)
-        ...randomNearbyCoords()
-      }));
-      
-      setBackendFriends(transformedFriends);
-      setBackendMode(true);
-    } catch (error) {
-      console.error('Error loading backend friends:', error);
-      setBackendMode(false);
-    } finally {
-      setLoadingBackendFriends(false);
-    }
+    // Skip API calls in offline mode
+    setBackendMode(false);
   };
 
   // Add friend to backend
   const addFriendToBackend = async (friendData) => {
-    try {
-      const userId = await getCurrentUserId();
-      if (!userId) {
-        throw new Error('User not authenticated');
-      }
-
-      const backendFriendData = {
-        name: friendData.name,
-        contact: friendData.contact,
-        contactType: friendData.contactType || 'email',
-        addedBy: userId,
-      };
-
-      const response = await friendsAPI.addFriend(backendFriendData);
-      return response;
-    } catch (error) {
-      console.error('Error adding friend to backend:', error);
-      throw error;
-    }
+    // Skip API calls in offline mode
+    return;
   };
 
   // Remove friend from backend
   const removeFriendFromBackend = async (friendId) => {
-    try {
-      await friendsAPI.removeFriend(friendId);
-    } catch (error) {
-      console.error('Error removing friend from backend:', error);
-      throw error;
-    }
+    // Skip API calls in offline mode
+    return;
   };
 
   // Handle circle creation
@@ -299,19 +151,14 @@ export default function FriendTrackingSystem() {
 
   // Toggle between local and backend mode
   const toggleBackendMode = () => {
-    if (backendMode) {
-      setBackendMode(false);
-      addNotification('Switched to local mode', 'info');
-    } else {
-      loadBackendFriends();
-    }
+    // Keep in local mode for offline functionality
+    setBackendMode(false);
+    addNotification('Offline mode - using local data', 'info');
   };
 
   // Get current friends data based on mode
   const getCurrentFriendsData = () => {
-    if (backendMode && backendFriends.length > 0) {
-      return backendFriends;
-    }
+    // Always use local friends in offline mode
     return friends;
   };
 
@@ -388,18 +235,8 @@ export default function FriendTrackingSystem() {
         loadStoredData();
       }
       
-      // Load real-time friends data
+      // Load real-time friends data (offline mode)
       loadRealTimeFriends();
-      
-      // Load API data if enabled
-      if (useApiData && isDataLoaded) {
-        loadCircleMembers();
-      }
-      
-      // Disable automatic backend loading to prevent errors
-      // if (isDataLoaded) {
-      //   loadBackendFriends();
-      // }
       
       // Animate header when screen comes into focus
       Animated.parallel([
@@ -414,23 +251,17 @@ export default function FriendTrackingSystem() {
           useNativeDriver: true,
         }),
       ]).start();
-    }, [isDataLoaded, useApiData])
+    }, [isDataLoaded])
   );
 
-  // Real-time updates - Check for accepted requests and refresh API data
+  // Real-time updates - Check for accepted requests (offline mode only)
   useEffect(() => {
     let interval;
     
     if (isDataLoaded) {
       interval = setInterval(() => {
-        if (!useApiData) {
-          checkForRequestUpdates();
-        }
-        // Refresh API data every 30 seconds if enabled
-        if (useApiData && !loadingApiData) {
-          loadCircleMembers();
-        }
-      }, useApiData ? 30000 : 3000); // 30 seconds for API, 3 seconds for local updates
+        checkForRequestUpdates();
+      }, 3000); // 3 seconds for local updates
     }
 
     return () => {
@@ -438,11 +269,11 @@ export default function FriendTrackingSystem() {
         clearInterval(interval);
       }
     };
-  }, [isDataLoaded, useApiData, loadingApiData]);
+  }, [isDataLoaded]);
 
-  // Mock function to simulate checking for request updates (only for local mode)
+  // Mock function to simulate checking for request updates (offline mode only)
   const checkForRequestUpdates = useCallback(() => {
-    if (!isDataLoaded || useApiData) return; // Skip for API mode
+    if (!isDataLoaded) return; // Skip if data not loaded
     
     setPendingRequests(prev => {
       const updated = [...prev];
@@ -878,7 +709,7 @@ export default function FriendTrackingSystem() {
               <View style={styles.titleContainer}>
                 <Text style={styles.header}>People You Track</Text>
                 <Text style={styles.subtitle}>
-                  {filteredPeople.length} friends • {pendingRequests.length} requests • Local mode
+                  {filteredPeople.length} friends • Offline mode
                 </Text>
               </View>
               {/* <TouchableOpacity 
@@ -909,13 +740,6 @@ export default function FriendTrackingSystem() {
                 }}
               >
                 <Text style={styles.notificationText}>🔔</Text>
-                {pendingRequests.length > 0 && (
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.badgeText}>
-                      {pendingRequests.length}
-                    </Text>
-                  </View>
-                )}
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.authCheckButton}
@@ -1233,43 +1057,32 @@ const styles = StyleSheet.create({
   },
   notificationsOverlay: {
     position: 'absolute',
-    top: 80,
-    right: 10,
+    top: 100,
+    right: 20,
     zIndex: 1000,
-    width: '90%',
-    maxWidth: 340,
-    alignItems: 'flex-end',
+    width: width * 0.8,
   },
   notificationsList: {
-    maxHeight: 220,
-    width: '100%',
+    maxHeight: 300,
   },
   notificationItem: {
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    marginBottom: 6,
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.07,
-    shadowRadius: 2,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    minWidth: 180,
-    maxWidth: 320,
-    alignSelf: 'flex-end',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   notificationText: {
-    fontSize: 13,
-    fontWeight: '500',
-    marginBottom: 2,
-    lineHeight: 17,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   notificationTime: {
-    fontSize: 11,
-    opacity: 0.6,
-    alignSelf: 'flex-end',
+    fontSize: 12,
+    opacity: 0.7,
   },
   headerContainer: {
     position: 'relative',

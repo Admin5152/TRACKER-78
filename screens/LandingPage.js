@@ -1,8 +1,42 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Animated,
+  Easing,
+} from 'react-native';
 
 export default function LandingPage({ navigation }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const bounceAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
+    // Fade in text
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 800,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+
+    // Bounce loop for pin animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(bounceAnim, {
+          toValue: -5,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bounceAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
     const timer = setTimeout(() => {
       navigation.navigate('Login');
     }, 3000);
@@ -13,11 +47,21 @@ export default function LandingPage({ navigation }) {
   return (
     <View style={styles.wrapper}>
       <View style={styles.content}>
-        <View style={styles.logoContainer}>
-          <Image source={require('../assets/Tracker_78_logo.png')} style={styles.logoImage} />
-        </View>
-        <Text style={styles.subtitle}>Share your location with the people you love.</Text>
-        <ActivityIndicator size="large" color="#1E293B" style={styles.loader} />
+        <Animated.Text style={[styles.logoText, { opacity: fadeAnim }]}>
+          TRACKER 78
+        </Animated.Text>
+
+        {/* Custom animated location pin */}
+        <Animated.View style={[styles.pinWrapper, { transform: [{ translateY: bounceAnim }] }]}>
+          <View style={styles.pinDot} />
+          <View style={styles.pinShadow} />
+        </Animated.View>
+
+        <Animated.Text style={[styles.subtitle, { opacity: fadeAnim }]}>
+          Share your location with the people you love.
+        </Animated.Text>
+
+        <ActivityIndicator size="large" color="#ffffff" style={styles.loader} />
       </View>
     </View>
   );
@@ -26,7 +70,7 @@ export default function LandingPage({ navigation }) {
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: '#0b0b0bff',
+    backgroundColor: '#000000',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -34,20 +78,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 30,
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
+  logoText: {
+    fontSize: 42,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 2,
+    textAlign: 'center',
+    marginBottom: 10,
   },
-  logoImage: {
-    width: 300,
-    height: 300,
-    borderRadius: 50,
+  pinWrapper: {
+    alignItems: 'center',
+    marginBottom: 25,
+  },
+  pinDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderBottomRightRadius: 0,
+    borderWidth: 2,
+    borderColor: '#fff',
+    transform: [{ rotate: '45deg' }],
+    backgroundColor: 'transparent',
+  },
+  pinShadow: {
+    width: 24,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    marginTop: 6,
   },
   subtitle: {
-    fontSize: 18,
-    color: '#475569',
+    fontSize: 16,
+    color: '#A1A1AA',
     textAlign: 'center',
     marginBottom: 30,
+    maxWidth: 300,
   },
   loader: {
     marginTop: 10,
